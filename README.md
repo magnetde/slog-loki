@@ -1,0 +1,1 @@
+# Loki Hook for logrus
