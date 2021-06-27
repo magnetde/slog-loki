@@ -29,8 +29,8 @@ type Hook struct {
 	removeColors bool
 	minLevel     logrus.Level
 
-	waitDuration time.Duration
-	entryCount   int
+	batchInterval time.Duration
+	batchSize     int
 
 	synchronous    bool
 	suppressErrors bool
@@ -58,11 +58,11 @@ func NewHook(typ, url string, options ...Option) (*Hook, error) {
 		url: url,
 
 		// set non-zero default values
-		formatter:    &logrus.TextFormatter{DisableTimestamp: true},
-		minLevel:     logrus.TraceLevel,
-		typeAttr:     "source",
-		waitDuration: 10 * time.Second,
-		entryCount:   1000,
+		formatter:     &logrus.TextFormatter{DisableTimestamp: true},
+		minLevel:      logrus.TraceLevel,
+		typeAttr:      "source",
+		batchInterval: 10 * time.Second,
+		batchSize:     1000,
 	}
 
 	for _, o := range options {
@@ -146,24 +146,18 @@ func (h *Hook) Levels() []logrus.Level {
 
 // process runs the worker queue in the background
 func (h *Hook) worker() {
-	maxWait := time.NewTimer(h.waitDuration)
+	maxWait := time.NewTimer(h.batchInterval)
 
 	var (
 		labels lokiLabels
 		values []*lokiValue
 	)
 
-	show := func(err error) {
-		if !h.suppressErrors && err != nil {
-			logrus.Error("Failed to send entry to loki: " + err.Error())
-		}
-	}
-
 	for {
 		select {
 		case <-h.quit:
 			if len(values) > 0 {
-				show(h.send(labels, values))
+				h.sendLogError(labels, values)
 			}
 
 			h.wg.Done()
@@ -173,7 +167,7 @@ func (h *Hook) worker() {
 
 			if !labels.Equals(l) {
 				if len(values) > 0 {
-					show(h.send(labels, values))
+					h.sendLogError(labels, values)
 					values = values[:0]
 				}
 
@@ -181,28 +175,37 @@ func (h *Hook) worker() {
 			}
 
 			val, err := h.lokiValue(e)
-			if err == nil {
-				values = append(values, val)
-			} else {
-				show(err)
+			if err != nil {
+				logrus.Error("Failed to create loki value from entry: " + err.Error())
+				break
 			}
 
-			if len(values) >= h.entryCount {
-				show(h.send(labels, values))
+			values = append(values, val)
+
+			if len(values) >= h.batchSize {
+				h.sendLogError(labels, values)
 				values = values[:0]
 
-				maxWait.Reset(h.waitDuration)
+				maxWait.Reset(h.batchInterval)
 			}
 		case <-maxWait.C:
 			if len(values) > 0 {
-				show(h.send(labels, values))
+				h.sendLogError(labels, values)
 				values = values[:0]
 			}
 
-			maxWait.Reset(h.waitDuration)
+			maxWait.Reset(h.batchInterval)
 		}
 	}
 }
+
+func (h *Hook) sendLogError(l lokiLabels, values []*lokiValue) {
+	err := h.send(l, values)
+	if err != nil && !h.suppressErrors {
+		logrus.Error("Failed to send entry to loki: " + err.Error())
+	}
+}
+
 func (h *Hook) send(l lokiLabels, values []*lokiValue) error {
 	stream := &lokiStream{
 		Stream: l,
