@@ -18,11 +18,7 @@ func (l lokiLabels) Equals(o lokiLabels) bool {
 	}
 
 	for k, v := range l {
-		if v2, ok := o[k]; ok {
-			if v != v2 {
-				return false
-			}
-		} else {
+		if v2, ok := o[k]; !ok || v != v2 {
 			return false
 		}
 	}
