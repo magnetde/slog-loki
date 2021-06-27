@@ -10,10 +10,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type lokiMessage struct {
-	Streams []*lokiStream `json:"streams"`
-}
-
 type lokiLabels map[string]string
 
 func (l lokiLabels) Equals(o lokiLabels) bool {
@@ -32,6 +28,10 @@ func (l lokiLabels) Equals(o lokiLabels) bool {
 	}
 
 	return true
+}
+
+type lokiMessage struct {
+	Streams []*lokiStream `json:"streams"`
 }
 
 type lokiStream struct {
