@@ -1,0 +1,242 @@
+package loki
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io/ioutil"
+	"net/http"
+	"sync"
+	"time"
+
+	"github.com/sirupsen/logrus"
+)
+
+// BufSize is used as the channel size which buffers log entries before sending them asynchrously to the loki server.
+// Set loki.BufSize = <value> _before_ calling NewServerHook
+// Once the buffer is full, logging will start blocking, waiting for slots to be available in the queue.
+var BufSize uint = 4096
+
+// ServerHook to send logs to logcollect server.
+type Hook struct {
+	typ string
+	url string
+
+	typeAttr string
+
+	formatter    logrus.Formatter
+	removeColors bool
+	minLevel     logrus.Level
+
+	waitDuration time.Duration
+	entryCount   int
+
+	synchronous    bool
+	suppressErrors bool
+
+	quit chan struct{}
+	buf  chan *logrus.Entry
+	wg   sync.WaitGroup
+	mu   sync.RWMutex
+}
+
+// Test if the ServerHook matches the logrus.Hook interface.
+var _ logrus.Hook = (*Hook)(nil)
+
+// NewHook creates a hook to be added to an instance of logger.
+func NewHook(typ, url string, options ...Option) (*Hook, error) {
+	if typ == "" {
+		return nil, errors.New("empty log type")
+	}
+	if url == "" {
+		return nil, errors.New("empty url")
+	}
+
+	h := &Hook{
+		typ: typ,
+		url: url,
+
+		// set non-zero default values
+		formatter:    &logrus.TextFormatter{DisableTimestamp: true},
+		minLevel:     logrus.TraceLevel,
+		typeAttr:     "source",
+		waitDuration: 10 * time.Second,
+		entryCount:   1000,
+	}
+
+	for _, o := range options {
+		o.apply(h)
+	}
+
+	if !h.synchronous {
+		h.buf = make(chan *logrus.Entry, BufSize)
+
+		go h.worker()
+	}
+
+	return h, nil
+}
+
+// Fire sends a log entry to the server.
+func (h *Hook) Fire(entry *logrus.Entry) error {
+	h.mu.RLock() // Claim the mutex as a RLock - allowing multiple go routines to log simultaneously
+	defer h.mu.RUnlock()
+
+	if h.synchronous {
+		l := h.lokiLabels(entry)
+
+		v, err := h.lokiValue(entry)
+		if err != nil {
+			return err
+		}
+
+		vs := []*lokiValue{v}
+		return h.send(l, vs)
+	}
+
+	// Creating a new entry to prevent data races
+	newData := make(map[string]interface{})
+	for k, v := range entry.Data {
+		newData[k] = v
+	}
+
+	newEntry := &logrus.Entry{
+		Logger:  entry.Logger,
+		Data:    newData,
+		Time:    entry.Time,
+		Level:   entry.Level,
+		Caller:  entry.Caller,
+		Message: entry.Message,
+	}
+
+	h.wg.Add(1)
+	h.buf <- newEntry
+
+	if entry.Level == logrus.PanicLevel || entry.Level == logrus.FatalLevel {
+		h.wg.Wait()
+	}
+
+	return nil
+}
+
+// Flush waits for the log queue to be empty.
+// This func is meant to be used when the hook was created as asynchronous.
+func (h *Hook) Flush() {
+	h.mu.Lock() // claim the mutex as a Lock - we want exclusive access to it
+	defer h.mu.Unlock()
+
+	close(h.quit)
+	h.wg.Wait()
+
+}
+
+// Levels returns the Levels used for this hook.
+func (h *Hook) Levels() []logrus.Level {
+	levels := make([]logrus.Level, 0, int(h.minLevel)+1) // capacity: minlvl+1
+
+	for _, l := range logrus.AllLevels {
+		if l <= h.minLevel {
+			levels = append(levels, l)
+		}
+	}
+
+	return levels
+}
+
+// process runs the worker queue in the background
+func (h *Hook) worker() {
+	maxWait := time.NewTimer(h.waitDuration)
+
+	var (
+		labels lokiLabels
+		values []*lokiValue
+	)
+
+	show := func(err error) {
+		if !h.suppressErrors && err != nil {
+			logrus.Error("Failed to send entry to loki: " + err.Error())
+		}
+	}
+
+	for {
+		select {
+		case <-h.quit:
+			if len(values) > 0 {
+				show(h.send(labels, values))
+			}
+
+			h.wg.Done()
+			return
+		case e := <-h.buf:
+			l := h.lokiLabels(e)
+
+			if !labels.Equals(l) {
+				if len(values) > 0 {
+					show(h.send(labels, values))
+					values = values[:0]
+				}
+
+				labels = l
+			}
+
+			val, err := h.lokiValue(e)
+			if err == nil {
+				values = append(values, val)
+			} else {
+				show(err)
+			}
+
+			if len(values) >= h.entryCount {
+				show(h.send(labels, values))
+				values = values[:0]
+
+				maxWait.Reset(h.waitDuration)
+			}
+		case <-maxWait.C:
+			if len(values) > 0 {
+				show(h.send(labels, values))
+				values = values[:0]
+			}
+
+			maxWait.Reset(h.waitDuration)
+		}
+	}
+}
+func (h *Hook) send(l lokiLabels, values []*lokiValue) error {
+	stream := &lokiStream{
+		Stream: l,
+		Values: values,
+	}
+
+	streams := []*lokiStream{stream}
+	m := &lokiMessage{Streams: streams}
+
+	return h.sendMessage(m)
+}
+
+func (h *Hook) sendMessage(m *lokiMessage) error {
+	jsonMsg, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
+
+	client := http.Client{}
+
+	res, err := client.Post(h.url, "application/json", bytes.NewBuffer(jsonMsg))
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode == 204 {
+		return nil
+	}
+
+	body, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		return err
+	}
+
+	return fmt.Errorf("unexpected HTTP status code: %d, message: %s", res.StatusCode, body)
+}
