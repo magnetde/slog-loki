@@ -21,6 +21,16 @@ func (o typeAttrOption) apply(h *Hook) {
 	h.typeAttr = string(o)
 }
 
+func WithLabels(v []Label) Option {
+	return labelOption(v)
+}
+
+type labelOption []Label
+
+func (o labelOption) apply(h *Hook) {
+	h.labels = []Label(o)
+}
+
 func WithFormatter(v logrus.Formatter) Option {
 	return formatterOption{f: v}
 }

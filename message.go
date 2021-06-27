@@ -4,15 +4,27 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strconv"
 	"time"
 
 	"github.com/sirupsen/logrus"
 )
 
+type Label uint
+
+const (
+	TypeLabel Label = iota
+	FieldsLabel
+	TimeLabel
+	LevelLabel
+	CallerLabel
+	MessageLabel
+)
+
 type lokiLabels map[string]string
 
-func (l lokiLabels) Equals(o lokiLabels) bool {
+func (l lokiLabels) equals(o lokiLabels) bool {
 	if len(l) != len(o) {
 		return false
 	}
@@ -26,13 +38,33 @@ func (l lokiLabels) Equals(o lokiLabels) bool {
 	return true
 }
 
-type lokiMessage struct {
-	Streams []*lokiStream `json:"streams"`
-}
+func (h *Hook) lokiLabels(e *logrus.Entry) lokiLabels {
+	l := lokiLabels{
+		h.typeAttr: h.typ,
+	}
 
-type lokiStream struct {
-	Stream lokiLabels   `json:"stream"`
-	Values []*lokiValue `json:"values"`
+	for _, lbl := range h.labels {
+		switch lbl {
+		case TypeLabel:
+			l[h.typeAttr] = h.typ
+		case FieldsLabel:
+			for k, v := range e.Data {
+				l[k] = fmt.Sprint(v)
+			}
+		case TimeLabel:
+			l["time"] = e.Time.String()
+		case LevelLabel:
+			l["level"] = e.Level.String()
+		case CallerLabel:
+			if e.Caller != nil {
+				l["call"] = fmt.Sprintf("%s:%d:%s", e.Caller.File, e.Caller.Line, e.Caller.Function)
+			}
+		case MessageLabel:
+			l["message"] = e.Message
+		}
+	}
+
+	return l
 }
 
 type lokiValue struct {
@@ -55,14 +87,6 @@ func (v *lokiValue) MarshalJSON() ([]byte, error) {
 	b.WriteByte(']')
 
 	return b.Bytes(), nil
-}
-
-func (h *Hook) lokiLabels(e *logrus.Entry) lokiLabels {
-	l := lokiLabels{
-		h.typeAttr: h.typ,
-	}
-
-	return l
 }
 
 func (h *Hook) lokiValue(e *logrus.Entry) (*lokiValue, error) {
@@ -91,4 +115,13 @@ func (h *Hook) lokiValue(e *logrus.Entry) (*lokiValue, error) {
 	}
 
 	return v, nil
+}
+
+type lokiStream struct {
+	Stream lokiLabels   `json:"stream"`
+	Values []*lokiValue `json:"values"`
+}
+
+type lokiMessage struct {
+	Streams []*lokiStream `json:"streams"`
 }

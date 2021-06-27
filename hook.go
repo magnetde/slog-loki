@@ -24,6 +24,7 @@ type Hook struct {
 	url string
 
 	typeAttr string
+	labels   []Label
 
 	formatter    logrus.Formatter
 	removeColors bool
@@ -58,9 +59,10 @@ func NewHook(typ, url string, options ...Option) (*Hook, error) {
 		url: url,
 
 		// set non-zero default values
+		typeAttr:      "source",
+		labels:        []Label{TypeLabel},
 		formatter:     &logrus.TextFormatter{DisableTimestamp: true},
 		minLevel:      logrus.TraceLevel,
-		typeAttr:      "source",
 		batchInterval: 10 * time.Second,
 		batchSize:     1000,
 	}
@@ -165,7 +167,7 @@ func (h *Hook) worker() {
 		case e := <-h.buf:
 			l := h.lokiLabels(e)
 
-			if !labels.Equals(l) {
+			if !labels.equals(l) {
 				if len(values) > 0 {
 					h.sendLogError(labels, values)
 					values = values[:0]
