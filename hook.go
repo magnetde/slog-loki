@@ -128,8 +128,10 @@ func (h *Hook) Flush() {
 	h.mu.Lock() // claim the mutex as a Lock - we want exclusive access to it
 	defer h.mu.Unlock()
 
-	close(h.quit)
-	h.wg.Wait()
+	if !h.synchronous {
+		close(h.quit)
+		h.wg.Wait()
+	}
 
 }
 
