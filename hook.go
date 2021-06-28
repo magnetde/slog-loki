@@ -20,11 +20,11 @@ var BufSize uint = 4096
 
 // ServerHook to send logs to logcollect server.
 type Hook struct {
-	typ string
+	src string
 	url string
 
-	typeAttr string
-	labels   []Label
+	srcAttr string
+	labels  []Label
 
 	formatter    logrus.Formatter
 	removeColors bool
@@ -46,8 +46,8 @@ type Hook struct {
 var _ logrus.Hook = (*Hook)(nil)
 
 // NewHook creates a hook to be added to an instance of logger.
-func NewHook(typ, url string, options ...Option) (*Hook, error) {
-	if typ == "" {
+func NewHook(src, url string, options ...Option) (*Hook, error) {
+	if src == "" {
 		return nil, errors.New("empty log type")
 	}
 	if url == "" {
@@ -55,16 +55,19 @@ func NewHook(typ, url string, options ...Option) (*Hook, error) {
 	}
 
 	h := &Hook{
-		typ: typ,
+		src: src,
 		url: url,
 
-		// set non-zero default values
-		typeAttr:      "source",
-		labels:        []Label{TypeLabel},
-		formatter:     &logrus.TextFormatter{DisableTimestamp: true},
-		minLevel:      logrus.TraceLevel,
-		batchInterval: 10 * time.Second,
-		batchSize:     1000,
+		// default values
+		srcAttr:        "source",
+		labels:         []Label{SourceLabel},
+		formatter:      &logrus.TextFormatter{DisableTimestamp: true},
+		removeColors:   false,
+		minLevel:       logrus.TraceLevel,
+		batchInterval:  10 * time.Second,
+		batchSize:      1000,
+		synchronous:    false,
+		suppressErrors: false,
 	}
 
 	for _, o := range options {
