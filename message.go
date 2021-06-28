@@ -14,7 +14,7 @@ import (
 type Label uint
 
 const (
-	TypeLabel Label = iota
+	SourceLabel Label = iota
 	FieldsLabel
 	TimeLabel
 	LevelLabel
@@ -39,14 +39,14 @@ func (l lokiLabels) equals(o lokiLabels) bool {
 }
 
 func (h *Hook) lokiLabels(e *logrus.Entry) lokiLabels {
-	l := lokiLabels{
-		h.typeAttr: h.typ,
-	}
+	l := lokiLabels{}
 
 	for _, lbl := range h.labels {
 		switch lbl {
-		case TypeLabel:
-			l[h.typeAttr] = h.typ
+		case SourceLabel:
+			if h.srcAttr != "" {
+				l[h.srcAttr] = h.src
+			}
 		case FieldsLabel:
 			for k, v := range e.Data {
 				l[k] = fmt.Sprint(v)

@@ -11,17 +11,17 @@ type Option interface {
 	apply(h *Hook)
 }
 
-func WithTypeAttribute(v string) Option {
-	return typeAttrOption(v)
+func WithSourceAttribute(v string) Option {
+	return srcAttrOption(v)
 }
 
-type typeAttrOption string
+type srcAttrOption string
 
-func (o typeAttrOption) apply(h *Hook) {
-	h.typeAttr = string(o)
+func (o srcAttrOption) apply(h *Hook) {
+	h.srcAttr = string(o)
 }
 
-func WithLabels(v []Label) Option {
+func WithLabels(v ...Label) Option {
 	return labelOption(v)
 }
 
