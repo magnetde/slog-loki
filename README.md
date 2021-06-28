@@ -40,6 +40,7 @@ func main() {
 ```
 
 This displays all log entries of the application, with a severity of at least "warning".
+The call depends on the `Formatter`.
 
 ## Options
 
@@ -53,19 +54,19 @@ This displays all log entries of the application, with a severity of at least "w
   - `FieldsLabel`: add all extra fields as labels (`Entry.Data`)
   - `TimeLabel`: add the time as a label (`Entry.Time`)
   - `LevelLabel`: add the log level as a label (`Entry.Level`)
-  - `CallerLabel`: add the caller as format `"[file]:[line]:[function]"` (`Entry.Caller`)
+  - `CallerLabel`: add the caller with format `"[file]:[line]:[function]"` (`Entry.Caller`)
   - `MessageLabel`: add the message as a label (`Entry.Message`)
 - `WithFormatter(logrus.Formatter)`:  
-  By default, the `TextFormatter` without timestamp is used (`&logrus.TextFormatter{DisableTimestamp: true}`).
+  By default, the `TextFormatter` with disabled timestamp is used (`&logrus.TextFormatter{DisableTimestamp: true}`).
 - `WithRemoveColors(bool)`:  
   Remove ANSI colors from the serialized log entry.
 - `WithMinLevel(logrus.Level)`:  
-  Minimum level for log entries
+  Minimum level for log entries. All entries that have a lower severity are ignored.
 - `WithBatchInterval(time.Duration)`:  
-  Batch interval; if this interval is exceeded, all log entries collected so far will be sent out (default: 10 seconds).
+  Batch interval. If this interval has been reached since the last sending, all log entries collected so far will be sent (default: 10 seconds).
 - `WithBatchSize(int)`:  
-  Maximum batch size; if the number of collected log entries is exceeded, all collected entries will be sent out (default: 1000).
+  Maximum batch size. If the number of collected log entries is exceeded, all collected entries will be sent (default: 1000).
 - `WithSynchronous(bool)`:  
-  By default, log entries are processed in a separate Go routine. If synchronous sending is used, batch interval and size are ignored.
+  By default (async mode), log entries are processed in a separate Go routine. If synchronous sending is used, batch interval and size are ignored.
 - `WithSuppressErrors(bool)`:  
   Errors at asynchronous mode are logged to the console. This disables the logging of errors. Ignored at synchronous mode.
