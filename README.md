@@ -39,12 +39,14 @@ func main() {
 {source=~"my-go-binary"} | logfmt | level =~ "warning|error|fatal|panic"
 ```
 
+This displays all log entries of the application, with a severity of at least "warning".
+
 ## Options
 
-- `WithSourceAttribute(v string)`:  
+- `WithSourceAttribute(string)`:  
    By default, the source parameter is sent as the "source" label.
    This can be used to change it or disable it altogether (empty string).
-- `WithLabels(v ...Label)`:  
+- `WithLabels(...Label)`:  
   Send additional attributes of the entry as labels. By default, only the source attribute is sent.  
   Available labels:
   - `SourceLabel`: add source, enabled by default
@@ -53,17 +55,17 @@ func main() {
   - `LevelLabel`: add the log level as a label
   - `CallerLabel`: add the caller as format `"[file]:[line]:[function]"`
   - `MessageLabel`: add the message as a label
-- `WithFormatter(v logrus.Formatter)`:  
+- `WithFormatter(logrus.Formatter)`:  
   By default, the `TextFormatter` without timestamp is used (`&logrus.TextFormatter{DisableTimestamp: true}`).
-- `WithRemoveColors(v bool)`:  
+- `WithRemoveColors(bool)`:  
   Remove ANSI colors from the serialized log entry.
-- `WithMinLevel(v logrus.Level)`:  
+- `WithMinLevel(logrus.Level)`:  
   Minimum level for log entries
-- `WithBatchInterval(v time.Duration)`:  
+- `WithBatchInterval(time.Duration)`:  
   Batch interval; if this interval is exceeded, all log entries collected so far will be sent out (default: 10 seconds).
-- `WithBatchSize(v int)`:  
+- `WithBatchSize(int)`:  
   Maximum batch size; if the number of collected log entries is exceeded, all collected entries will be sent out (default: 1000).
-- `WithSynchronous(v bool)`:  
+- `WithSynchronous(bool)`:  
   By default, log entries are processed in a separate Go routine. If synchronous sending is used, batch interval and size are ignored.
-- `WithSuppressErrors(v bool)`:  
+- `WithSuppressErrors(bool)`:  
   Errors at asynchronous mode are logged to the console. This disables the logging of errors. Ignored at synchronous mode.
