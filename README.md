@@ -44,17 +44,17 @@ This displays all log entries of the application, with a severity of at least "w
 ## Options
 
 - `WithSourceAttribute(string)`:  
-   By default, the source parameter is sent as the "source" label.
-   This can be used to change it or disable it altogether (empty string).
+   By default, the source parameter is sent as the label `"source"`.
+   This can be used to change it or disable this label (empty string).
 - `WithLabels(...Label)`:  
   Send additional attributes of the entry as labels. By default, only the source attribute is sent.  
   Available labels:
-  - `SourceLabel`: add source, enabled by default
-  - `FieldsLabel`: add all extra fields as labels
-  - `TimeLabel`: add the time as a label
-  - `LevelLabel`: add the log level as a label
-  - `CallerLabel`: add the caller as format `"[file]:[line]:[function]"`
-  - `MessageLabel`: add the message as a label
+  - `SourceLabel`: add the source; enabled by default
+  - `FieldsLabel`: add all extra fields as labels (`Entry.Data`)
+  - `TimeLabel`: add the time as a label (`Entry.Time`)
+  - `LevelLabel`: add the log level as a label (`Entry.Level`)
+  - `CallerLabel`: add the caller as format `"[file]:[line]:[function]"` (`Entry.Caller`)
+  - `MessageLabel`: add the message as a label (`Entry.Message`)
 - `WithFormatter(logrus.Formatter)`:  
   By default, the `TextFormatter` without timestamp is used (`&logrus.TextFormatter{DisableTimestamp: true}`).
 - `WithRemoveColors(bool)`:  
