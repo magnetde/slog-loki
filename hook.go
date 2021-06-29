@@ -18,7 +18,7 @@ import (
 // Once the buffer is full, logging will start blocking, waiting for slots to be available in the queue.
 var BufSize uint = 4096
 
-// ServerHook to send logs to logcollect server.
+// Hook is the hook that can be used to log to Loki.
 type Hook struct {
 	src string
 	url string
@@ -28,7 +28,7 @@ type Hook struct {
 
 	formatter    logrus.Formatter
 	removeColors bool
-	minLevel     logrus.Level
+	level        logrus.Level
 
 	batchInterval time.Duration
 	batchSize     int
@@ -36,20 +36,21 @@ type Hook struct {
 	synchronous    bool
 	suppressErrors bool
 
-	quit chan struct{}
-	buf  chan *logrus.Entry
-	wg   sync.WaitGroup
-	mu   sync.RWMutex
+	flush chan bool // false: flush only; true: flush and quit
+	buf   chan *logrus.Entry
+	wg    sync.WaitGroup
+	mu    sync.RWMutex
 }
 
 // Test if the ServerHook matches the logrus.Hook interface.
 var _ logrus.Hook = (*Hook)(nil)
 
 // NewHook creates a hook to be added to an instance of logger.
+// Parameters:
+//  src: Source attribute; keep empty to ignore
+//  url: base url of Loki
+//  options: Ooptions for this hook; see README.md
 func NewHook(src, url string, options ...Option) (*Hook, error) {
-	if src == "" {
-		return nil, errors.New("empty log type")
-	}
 	if url == "" {
 		return nil, errors.New("empty url")
 	}
@@ -63,7 +64,7 @@ func NewHook(src, url string, options ...Option) (*Hook, error) {
 		labels:         []Label{SourceLabel},
 		formatter:      &logrus.TextFormatter{DisableTimestamp: true},
 		removeColors:   false,
-		minLevel:       logrus.TraceLevel,
+		level:          logrus.TraceLevel,
 		batchInterval:  10 * time.Second,
 		batchSize:      1000,
 		synchronous:    false,
@@ -83,7 +84,8 @@ func NewHook(src, url string, options ...Option) (*Hook, error) {
 	return h, nil
 }
 
-// Fire sends a log entry to the server.
+// Fire sends a log entry to Loki.
+// To prevent data races in asynchronous mode, a new entry is created and then sent to the channel.
 func (h *Hook) Fire(entry *logrus.Entry) error {
 	h.mu.RLock() // Claim the mutex as a RLock - allowing multiple go routines to log simultaneously
 	defer h.mu.RUnlock()
@@ -115,11 +117,10 @@ func (h *Hook) Fire(entry *logrus.Entry) error {
 		Message: entry.Message,
 	}
 
-	h.wg.Add(1)
 	h.buf <- newEntry
 
 	if entry.Level == logrus.PanicLevel || entry.Level == logrus.FatalLevel {
-		h.wg.Wait()
+		h.Flush()
 	}
 
 	return nil
@@ -128,22 +129,35 @@ func (h *Hook) Fire(entry *logrus.Entry) error {
 // Flush waits for the log queue to be empty.
 // This func is meant to be used when the hook was created as asynchronous.
 func (h *Hook) Flush() {
+	if !h.synchronous {
+		h.wg.Add(1)
+		h.flush <- false
+		h.wg.Wait()
+	}
+}
+
+// Close waits for the log queue to be empty and then stops the background worker.
+// This func is meant to be used when the hook was created as asynchronous.
+func (h *Hook) Close() {
 	h.mu.Lock() // claim the mutex as a Lock - we want exclusive access to it
 	defer h.mu.Unlock()
 
 	if !h.synchronous {
-		close(h.quit)
+		h.wg.Add(1)
+
+		h.flush <- true
+		close(h.flush)
+
 		h.wg.Wait()
 	}
-
 }
 
 // Levels returns the Levels used for this hook.
 func (h *Hook) Levels() []logrus.Level {
-	levels := make([]logrus.Level, 0, int(h.minLevel)+1) // capacity: minlvl+1
+	levels := make([]logrus.Level, 0, int(h.level)+1) // capacity: minlvl+1
 
 	for _, l := range logrus.AllLevels {
-		if l <= h.minLevel {
+		if l <= h.level {
 			levels = append(levels, l)
 		}
 	}
@@ -160,15 +174,19 @@ func (h *Hook) worker() {
 		values []*lokiValue
 	)
 
+loop:
 	for {
 		select {
-		case <-h.quit:
+		case quit := <-h.flush:
 			if len(values) > 0 {
 				h.sendLogError(labels, values)
 			}
 
 			h.wg.Done()
-			return
+
+			if quit {
+				break loop
+			}
 		case e := <-h.buf:
 			l := h.lokiLabels(e)
 
@@ -204,8 +222,13 @@ func (h *Hook) worker() {
 			maxWait.Reset(h.batchInterval)
 		}
 	}
+
+	if !maxWait.Stop() {
+		<-maxWait.C
+	}
 }
 
+// sendLogError sends the Loki message and then logs errors to the console.
 func (h *Hook) sendLogError(l lokiLabels, values []*lokiValue) {
 	err := h.send(l, values)
 	if err != nil && !h.suppressErrors {
@@ -213,6 +236,7 @@ func (h *Hook) sendLogError(l lokiLabels, values []*lokiValue) {
 	}
 }
 
+// send sends the Loki message by calling sendMessage().
 func (h *Hook) send(l lokiLabels, values []*lokiValue) error {
 	stream := &lokiStream{
 		Stream: l,
@@ -233,7 +257,7 @@ func (h *Hook) sendMessage(m *lokiMessage) error {
 
 	client := http.Client{}
 
-	res, err := client.Post(h.url, "application/json", bytes.NewBuffer(jsonMsg))
+	res, err := client.Post(h.url+"/loki/api/v1/push", "application/json", bytes.NewBuffer(jsonMsg))
 	if err != nil {
 		return err
 	}

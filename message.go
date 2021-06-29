@@ -11,14 +11,26 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// Label is the enum type to define additional labels to be added to the Loki message.
 type Label uint
 
 const (
+	// SourceLabel adds the source attribute
 	SourceLabel Label = iota
+
+	// FieldsLabel adds all extra fields as labels
 	FieldsLabel
+
+	// TimeLabel adds the time
 	TimeLabel
+
+	// LevelLabel adds the level
 	LevelLabel
+
+	// CallerLabel adds the caller which format "[file]:[line]:[function]"
 	CallerLabel
+
+	// MessageLabel adds the message as an extra label
 	MessageLabel
 )
 
@@ -44,7 +56,7 @@ func (h *Hook) lokiLabels(e *logrus.Entry) lokiLabels {
 	for _, lbl := range h.labels {
 		switch lbl {
 		case SourceLabel:
-			if h.srcAttr != "" {
+			if h.srcAttr != "" && h.src != "" {
 				l[h.srcAttr] = h.src
 			}
 		case FieldsLabel:

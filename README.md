@@ -1,3 +1,5 @@
+## ! Still in development
+
 This repository is a mirror of a private GitLab instance. All changes will be overwritten.
 
 # Loki Hook for logrus
@@ -26,7 +28,7 @@ func main() {
 		// ...
 	}
 
-	defer hook.Flush()
+	defer hook.Close()
 	log.AddHook(hook)
 
     // ...
@@ -50,7 +52,7 @@ The call depends on the `Formatter`.
 - `WithLabels(...Label)`:  
   Send additional attributes of the entry as labels. By default, only the source attribute is sent.  
   Available labels:
-  - `SourceLabel`: add the source; enabled by default
+  - `SourceLabel`: add the source attribute which is passed at the `NewHook` function; enabled by default
   - `FieldsLabel`: add all extra fields as labels (`Entry.Data`)
   - `TimeLabel`: add the time as a label (`Entry.Time`)
   - `LevelLabel`: add the log level as a label (`Entry.Level`)
