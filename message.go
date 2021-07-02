@@ -101,6 +101,58 @@ func (v *lokiValue) MarshalJSON() ([]byte, error) {
 	return b.Bytes(), nil
 }
 
+func (v *lokiValue) UnmarshalJSON(data []byte) error {
+	r := bytes.NewReader(data)
+	d := json.NewDecoder(r)
+
+	done := false
+	i := 0
+	arrIdx := 0
+
+	for ; d.More(); i++ {
+		tk, err := d.Token()
+		if err != nil {
+			return err
+		}
+
+		if done {
+			return fmt.Errorf("unexpected token `%v`", tk)
+		}
+
+		switch val := tk.(type) {
+		case json.Delim:
+			switch val {
+			case '[':
+				if i != 0 {
+					return errors.New("unexpected array")
+				}
+			case ']':
+				done = true
+			default:
+				return fmt.Errorf("unexpected delimiter '%c'", val)
+			}
+		case string:
+			switch arrIdx {
+			case 0:
+				ns, err := strconv.ParseInt(val, 10, 64)
+				if err != nil {
+					return fmt.Errorf("parsing date: %v", err)
+				}
+
+				v.Date = time.Unix(0, ns)
+			case 1:
+				v.Message = val
+			default:
+				return fmt.Errorf("unexpected value at array index %d", arrIdx)
+			}
+
+			arrIdx++
+		}
+	}
+
+	return nil
+}
+
 func (h *Hook) lokiValue(e *logrus.Entry) (*lokiValue, error) {
 	f := h.formatter
 	if f == nil {

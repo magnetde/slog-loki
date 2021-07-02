@@ -2,8 +2,20 @@ image: golang:1.16
 
 stages:
   - build
+  - test
 
 compile:
   stage: build
   script:
     - go build
+
+test:
+  stage: test
+  script:
+      # Test for coverage: total:\s+\(statements\)\s+\d+.\d+%
+    - go get github.com/boumenot/gocover-cobertura
+    - go test -cover -coverprofile=coverage.txt
+    - gocover-cobertura < coverage.txt > cobertura-coverage.xml
+  artifacts:
+    reports:
+      cobertura: cobertura-coverage.xml

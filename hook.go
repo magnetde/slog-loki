@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"sync"
 	"time"
@@ -23,6 +23,7 @@ type Hook struct {
 	src string
 	url string
 
+	// settings
 	srcAttr string
 	labels  []Label
 
@@ -36,10 +37,16 @@ type Hook struct {
 	synchronous    bool
 	suppressErrors bool
 
-	flush chan bool // false: flush only; true: flush and quit
-	buf   chan *logrus.Entry
-	wg    sync.WaitGroup
-	mu    sync.RWMutex
+	// mechanics for async mode
+	flush   chan struct{}
+	buf     chan *logrus.Entry
+	wgBuf   sync.WaitGroup
+	wgFlush sync.WaitGroup
+	mu      sync.RWMutex
+
+	// buffer values for async
+	bufLabels lokiLabels
+	bufValues []*lokiValue
 }
 
 // Test if the ServerHook matches the logrus.Hook interface.
@@ -76,6 +83,7 @@ func NewHook(src, url string, options ...Option) (*Hook, error) {
 	}
 
 	if !h.synchronous {
+		h.flush = make(chan struct{})
 		h.buf = make(chan *logrus.Entry, BufSize)
 
 		go h.worker()
@@ -117,22 +125,32 @@ func (h *Hook) Fire(entry *logrus.Entry) error {
 		Message: entry.Message,
 	}
 
+	h.wgBuf.Add(1)
 	h.buf <- newEntry
 
 	if entry.Level == logrus.PanicLevel || entry.Level == logrus.FatalLevel {
-		h.Flush()
+		h.doFlush()
 	}
 
 	return nil
 }
 
+func (h *Hook) doFlush() {
+	h.wgBuf.Wait()
+
+	h.wgFlush.Add(1)
+	h.flush <- struct{}{}
+	h.wgFlush.Wait()
+}
+
 // Flush waits for the log queue to be empty.
 // This func is meant to be used when the hook was created as asynchronous.
 func (h *Hook) Flush() {
+	h.mu.Lock() // claim the mutex as a Lock - we want exclusive access to it
+	defer h.mu.Unlock()
+
 	if !h.synchronous {
-		h.wg.Add(1)
-		h.flush <- false
-		h.wg.Wait()
+		h.doFlush()
 	}
 }
 
@@ -143,12 +161,9 @@ func (h *Hook) Close() {
 	defer h.mu.Unlock()
 
 	if !h.synchronous {
-		h.wg.Add(1)
-
-		h.flush <- true
+		h.doFlush()
 		close(h.flush)
-
-		h.wg.Wait()
+		close(h.buf)
 	}
 }
 
@@ -169,55 +184,30 @@ func (h *Hook) Levels() []logrus.Level {
 func (h *Hook) worker() {
 	maxWait := time.NewTimer(h.batchInterval)
 
-	var (
-		labels lokiLabels
-		values []*lokiValue
-	)
-
 loop:
 	for {
 		select {
-		case quit := <-h.flush:
-			if len(values) > 0 {
-				h.sendLogError(labels, values)
-			}
-
-			h.wg.Done()
-
-			if quit {
+		case _, ok := <-h.flush:
+			if ok {
+				h.sendBuffer()
+				h.wgFlush.Done()
+			} else {
 				break loop
 			}
 		case e := <-h.buf:
-			l := h.lokiLabels(e)
+			h.wgBuf.Done()
 
-			if !labels.equals(l) {
-				if len(values) > 0 {
-					h.sendLogError(labels, values)
-					values = values[:0]
-				}
-
-				labels = l
-			}
-
-			val, err := h.lokiValue(e)
+			sent, err := h.bufEntry(e)
 			if err != nil {
-				logrus.Error("Failed to create loki value from entry: " + err.Error())
+				h.logError("Failed to create loki value from entry: " + err.Error())
 				break
 			}
 
-			values = append(values, val)
-
-			if len(values) >= h.batchSize {
-				h.sendLogError(labels, values)
-				values = values[:0]
-
+			if sent {
 				maxWait.Reset(h.batchInterval)
 			}
 		case <-maxWait.C:
-			if len(values) > 0 {
-				h.sendLogError(labels, values)
-				values = values[:0]
-			}
+			h.sendBuffer()
 
 			maxWait.Reset(h.batchInterval)
 		}
@@ -228,12 +218,43 @@ loop:
 	}
 }
 
-// sendLogError sends the Loki message and then logs errors to the console.
-func (h *Hook) sendLogError(l lokiLabels, values []*lokiValue) {
-	err := h.send(l, values)
-	if err != nil && !h.suppressErrors {
-		logrus.Error("Failed to send entry to loki: " + err.Error())
+func (h *Hook) bufEntry(e *logrus.Entry) (bool, error) {
+	sent := false
+
+	l := h.lokiLabels(e)
+
+	if !h.bufLabels.equals(l) { // label differ; send buffer
+		sent = h.sendBuffer()
+		h.bufLabels = l
 	}
+
+	val, err := h.lokiValue(e)
+	if err != nil {
+		return false, err
+	}
+
+	h.bufValues = append(h.bufValues, val)
+
+	if len(h.bufValues) >= h.batchSize {
+		sent = h.sendBuffer()
+	}
+
+	return sent, nil
+}
+
+// sendLogError sends the Loki message and then logs errors to the console.
+func (h *Hook) sendBuffer() bool {
+	if len(h.bufValues) == 0 {
+		return false
+	}
+
+	err := h.send(h.bufLabels, h.bufValues)
+	if err != nil {
+		h.logError("Failed to send entry to loki: " + err.Error())
+	}
+
+	h.bufValues = h.bufValues[:0]
+	return true
 }
 
 // send sends the Loki message by calling sendMessage().
@@ -255,9 +276,7 @@ func (h *Hook) sendMessage(m *lokiMessage) error {
 		return err
 	}
 
-	client := http.Client{}
-
-	res, err := client.Post(h.url+"/loki/api/v1/push", "application/json", bytes.NewBuffer(jsonMsg))
+	res, err := http.Post(h.url+"/loki/api/v1/push", "application/json", bytes.NewBuffer(jsonMsg))
 	if err != nil {
 		return err
 	}
@@ -267,10 +286,24 @@ func (h *Hook) sendMessage(m *lokiMessage) error {
 		return nil
 	}
 
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		return err
 	}
 
 	return fmt.Errorf("unexpected HTTP status code: %d, message: %s", res.StatusCode, body)
+}
+
+func (h *Hook) logError(str string) {
+	if h.suppressErrors {
+		return
+	}
+
+	f := logrus.StandardLogger().Formatter
+	e := logrus.NewEntry(logrus.StandardLogger())
+	e.Message = str
+
+	if b, err := f.Format(e); err != nil {
+		logrus.StandardLogger().Out.Write(b)
+	}
 }
