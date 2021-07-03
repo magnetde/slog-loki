@@ -20,12 +20,11 @@ var BufSize uint = 4096
 
 // Hook is the hook that can be used to log to Loki.
 type Hook struct {
-	src string
 	url string
 
 	// settings
-	srcAttr string
-	labels  []Label
+	labels        map[string]interface{}
+	labelsEnabled []Label
 
 	formatter    logrus.Formatter
 	removeColors bool
@@ -57,18 +56,17 @@ var _ logrus.Hook = (*Hook)(nil)
 //  src: Source attribute; keep empty to ignore
 //  url: base url of Loki
 //  options: Ooptions for this hook; see README.md
-func NewHook(src, url string, options ...Option) (*Hook, error) {
+func NewHook(url string, options ...Option) (*Hook, error) {
 	if url == "" {
 		return nil, errors.New("empty url")
 	}
 
 	h := &Hook{
-		src: src,
 		url: url,
 
 		// default values
-		srcAttr:        "source",
-		labels:         []Label{SourceLabel},
+		labels:         make(map[string]interface{}),
+		labelsEnabled:  nil,
 		formatter:      defaultFormatter,
 		removeColors:   false,
 		level:          logrus.TraceLevel,

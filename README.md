@@ -1,5 +1,3 @@
-## ! Still in development
-
 This repository is a mirror of a private GitLab instance. All changes will be overwritten.
 
 # Loki Hook for logrus
@@ -23,7 +21,7 @@ import (
 
 func main() {
 	// NewHook(source, url, ...options)
-	hook, err := loki.NewHook("my-go-binary", "http://localhost:3200", loki.WithMinLevel(log.InfoLevel))
+	hook, err := loki.NewHook("http://localhost:3200", loki.WithSource("my-go-binary"), loki.WithMinLevel(log.InfoLevel))
 	if err != nil {
 		// ...
 	}
@@ -31,7 +29,7 @@ func main() {
 	defer hook.Close()
 	log.AddHook(hook)
 
-    // ...
+	// ...
 }
 ```
 
@@ -46,13 +44,14 @@ The call depends on the `Formatter`.
 
 ## Options
 
-- `WithSourceAttribute(string)`:  
-   By default, the source parameter is sent as the label `"source"`.
-   This can be used to change it or disable this label (empty string).
-- `WithLabels(...Label)`:  
+- `WithSource(string)`:  
+  This adds the additional label "source" to all log entries sent to loki.
+- `WithLabel(string, interface{})`:  
+  Similar to `WithSource`, this adds an additional label to all log entries sent to loki.
+- `WithLabelsEnabled(...Label)`:  
   Send additional attributes of the entry as labels. By default, only the source attribute is sent.  
   Available labels:
-  - `SourceLabel`: add the source attribute which is passed at the `NewHook` function; enabled by default
+  - labels added with `WithSource` or `WithLabel` are always added to log entires
   - `FieldsLabel`: add all extra fields as labels (`Entry.Data`)
   - `TimeLabel`: add the time as a label (`Entry.Time`)
   - `LevelLabel`: add the log level as a label (`Entry.Level`)

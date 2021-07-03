@@ -15,11 +15,8 @@ import (
 type Label uint
 
 const (
-	// SourceLabel adds the source attribute
-	SourceLabel Label = iota
-
 	// FieldsLabel adds all extra fields as labels
-	FieldsLabel
+	FieldsLabel Label = iota
 
 	// TimeLabel adds the time
 	TimeLabel
@@ -52,13 +49,12 @@ func (l lokiLabels) equals(o lokiLabels) bool {
 
 func (h *Hook) lokiLabels(e *logrus.Entry) lokiLabels {
 	l := lokiLabels{}
+	for k, v := range h.labels {
+		l[k] = fmt.Sprint(v)
+	}
 
-	for _, lbl := range h.labels {
+	for _, lbl := range h.labelsEnabled {
 		switch lbl {
-		case SourceLabel:
-			if h.srcAttr != "" && h.src != "" {
-				l[h.srcAttr] = h.src
-			}
 		case FieldsLabel:
 			for k, v := range e.Data {
 				l[k] = fmt.Sprint(v)
