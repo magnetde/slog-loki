@@ -64,12 +64,13 @@ func (h *Hook) lokiLabels(e *logrus.Entry) lokiLabels {
 				l[k] = fmt.Sprint(v)
 			}
 		case TimeLabel:
-			l["time"] = e.Time.String()
+			l["time"] = e.Time.Format(time.RFC3339Nano)
 		case LevelLabel:
 			l["level"] = e.Level.String()
 		case CallerLabel:
-			if e.Caller != nil {
-				l["call"] = fmt.Sprintf("%s:%d:%s", e.Caller.File, e.Caller.Line, e.Caller.Function)
+			if e.HasCaller() {
+				function, _ := callerPrettyfier(e.Caller)
+				l["func"] = function
 			}
 		case MessageLabel:
 			l["message"] = e.Message
@@ -168,14 +169,9 @@ func (h *Hook) lokiValue(e *logrus.Entry) (*lokiValue, error) {
 		return nil, err
 	}
 
-	s := string(bytes)
-	if h.removeColors {
-		s = removeColors(s)
-	}
-
 	v := &lokiValue{
 		Date:    e.Time,
-		Message: s,
+		Message: string(bytes),
 	}
 
 	return v, nil

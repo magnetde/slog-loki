@@ -59,7 +59,8 @@ The call depends on the `Formatter`.
   - `CallerLabel`: add the caller with format `"[file]:[line]:[function]"` (`Entry.Caller`)
   - `MessageLabel`: add the message as a label (`Entry.Message`)
 - `WithFormatter(logrus.Formatter)`:  
-  By default, the `TextFormatter` with disabled timestamp is used (`&logrus.TextFormatter{DisableTimestamp: true}`).
+  By default, the `TextFormatter` with disabled colors and disabled timestamp is used.
+  Additional, it formats the caller in format `("file:line:func()", "")` (empty file value).
 - `WithRemoveColors(bool)`:  
   Remove ANSI colors from the serialized log entry.
 - `WithMinLevel(logrus.Level)`:  

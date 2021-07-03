@@ -69,7 +69,7 @@ func NewHook(src, url string, options ...Option) (*Hook, error) {
 		// default values
 		srcAttr:        "source",
 		labels:         []Label{SourceLabel},
-		formatter:      &logrus.TextFormatter{DisableTimestamp: true},
+		formatter:      defaultFormatter,
 		removeColors:   false,
 		level:          logrus.TraceLevel,
 		batchInterval:  10 * time.Second,
@@ -80,6 +80,10 @@ func NewHook(src, url string, options ...Option) (*Hook, error) {
 
 	for _, o := range options {
 		o.apply(h)
+	}
+
+	if h.removeColors {
+		h.formatter = &noColorFormatter{formatter: h.formatter}
 	}
 
 	if !h.synchronous {
@@ -191,6 +195,8 @@ loop:
 			if ok {
 				h.sendBuffer()
 				h.wgFlush.Done()
+
+				maxWait.Reset(h.batchInterval)
 			} else {
 				break loop
 			}
@@ -301,9 +307,12 @@ func (h *Hook) logError(str string) {
 
 	f := logrus.StandardLogger().Formatter
 	e := logrus.NewEntry(logrus.StandardLogger())
+
+	e.Time = time.Now()
+	e.Level = logrus.ErrorLevel
 	e.Message = str
 
-	if b, err := f.Format(e); err != nil {
+	if b, err := f.Format(e); err == nil {
 		logrus.StandardLogger().Out.Write(b)
 	}
 }
