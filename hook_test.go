@@ -407,12 +407,12 @@ func doLog(typ TestType, log *logrus.Logger, hook *Hook) {
 		log.Info("1")
 		hook.Flush()
 		log.Info("2")
-		time.Sleep(1 * time.Second)
+		time.Sleep(1100 * time.Millisecond) // 1.1 sec
 		log.Info("3")
 	case batchIntervalTest:
 		log.Info("1")
 		log.Info("2")
-		time.Sleep(1 * time.Second)
+		time.Sleep(1100 * time.Millisecond) // 1.1 sec
 		log.Info("3")
 	case batchSizeTest, synchronousTest:
 		log.Info("1")
