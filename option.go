@@ -11,26 +11,40 @@ type Option interface {
 	apply(h *Hook)
 }
 
-// WithSourceAttribute specifies the label key for the source label.
-func WithSourceAttribute(v string) Option {
+// WithSource adds the additional label "source" to all log entries sent to loki.
+func WithSource(v string) Option {
 	return srcAttrOption(v)
 }
 
 type srcAttrOption string
 
 func (o srcAttrOption) apply(h *Hook) {
-	h.srcAttr = string(o)
+	h.labels["source"] = string(o)
 }
 
-// WithLabels determines the attributes to be added as labels.
-func WithLabels(v ...Label) Option {
-	return labelOption(v)
+// WithLabel adds an extra labels to all log entries sent to loki.
+func WithLabel(k string, v interface{}) Option {
+	return labelOption{key: k, value: v}
 }
 
-type labelOption []Label
+type labelOption struct {
+	key   string
+	value interface{}
+}
 
 func (o labelOption) apply(h *Hook) {
-	h.labels = []Label(o)
+	h.labels[o.key] = o.value
+}
+
+// WithLabelsEnabled determines the attributes to be added as labels.
+func WithLabelsEnabled(v ...Label) Option {
+	return labelEnabledOption(v)
+}
+
+type labelEnabledOption []Label
+
+func (o labelEnabledOption) apply(h *Hook) {
+	h.labelsEnabled = []Label(o)
 }
 
 // WithFormatter sets the formatter for the message.
