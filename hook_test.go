@@ -29,8 +29,11 @@ const (
 	// see TestSourceAttribute
 	sourceAttrTest
 
-	// see TestLabels
+	// see TestLabel
 	labelTest
+
+	// see TestLabelsEnabled
+	labelEnabledTest
 
 	// see TestFormatter
 	formatterTest
@@ -83,8 +86,7 @@ func TestLokiHook(t *testing.T) {
 	require.Len(t, m.Streams, 1, "one Loki stream expected")
 
 	s := m.Streams[0]
-	require.Len(t, s.Stream, 1, "one label expected")
-	require.Contains(t, s.Stream, "source", `label "source" expected`)
+	require.Len(t, s.Stream, 0, "one label expected")
 
 	v := s.Values
 	require.Len(t, v, 5, "5 log values expected")
@@ -142,7 +144,7 @@ func checkMessages12_3(t *testing.T, msgs []*lokiMessage) {
 }
 
 // TestSourceAttribute tests:
-// - different source attribute
+// - source attribute
 func TestSourceAttribute(t *testing.T) {
 	msgs, err := testInternal(sourceAttrTest)
 	require.NoError(t, err)
@@ -154,13 +156,29 @@ func TestSourceAttribute(t *testing.T) {
 
 	s := m.Streams[0]
 	require.Len(t, s.Stream, 1, "one label expected")
-	require.Contains(t, s.Stream, "src", `label "src" expected`)
+	require.Contains(t, s.Stream, "source", `label "source" expected`)
+}
+
+// TestLabel tests:
+// - added label
+func TestLabel(t *testing.T) {
+	msgs, err := testInternal(labelTest)
+	require.NoError(t, err)
+
+	require.Len(t, msgs, 1, "one Loki message expected")
+
+	m := msgs[0]
+	require.Len(t, m.Streams, 1, "one Loki stream expected")
+
+	s := m.Streams[0]
+	require.Len(t, s.Stream, 1, "one label expected")
+	require.Contains(t, s.Stream, "test", `label "test" expected`)
 }
 
 // TestLabel tests:
 // - all available logrus attributes as labels
-func TestLabels(t *testing.T) {
-	msgs, err := testInternal(labelTest)
+func TestLabelsEnabled(t *testing.T) {
+	msgs, err := testInternal(labelEnabledTest)
 	require.NoError(t, err)
 
 	require.Len(t, msgs, 1, "one Loki message expected")
@@ -351,10 +369,12 @@ func getOptions(typ TestType) []Option {
 	case defaultTest, flushTest:
 		return nil
 	case sourceAttrTest:
-		return []Option{WithSourceAttribute("src")}
+		return []Option{WithSource("test")}
 	case labelTest:
-		all := []Label{SourceLabel, FieldsLabel, TimeLabel, LevelLabel, CallerLabel, MessageLabel}
-		return []Option{WithLabels(all...)}
+		return []Option{WithLabel("test", "test")}
+	case labelEnabledTest:
+		all := []Label{FieldsLabel, TimeLabel, LevelLabel, CallerLabel, MessageLabel}
+		return []Option{WithSource("test"), WithLabelsEnabled(all...)}
 	case formatterTest:
 		return []Option{WithFormatter(&logrus.JSONFormatter{})}
 	case removeColorTest:
@@ -389,9 +409,9 @@ func doLog(typ TestType, log *logrus.Logger, hook *Hook) {
 		log.Info("2")
 		hook.Flush()
 		log.Info("3")
-	case sourceAttrTest:
+	case sourceAttrTest, labelTest:
 		log.Info("test")
-	case labelTest:
+	case labelEnabledTest:
 		log.SetReportCaller(true)
 		log.WithField("test", "value").Info("test")
 	case formatterTest:
@@ -451,7 +471,7 @@ func testInternal(typ TestType) ([]*lokiMessage, error) {
 	url := server.URL
 	ops := getOptions(typ)
 
-	hook, err := NewHook("test", url, ops...)
+	hook, err := NewHook(url, ops...)
 	if err != nil {
 		return nil, err
 	}
