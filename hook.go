@@ -87,6 +87,8 @@ func NewHook(url string, options ...Option) (*Hook, error) {
 	if !h.synchronous {
 		h.flush = make(chan struct{})
 		h.buf = make(chan *logrus.Entry, BufSize)
+		h.bufLabels = make(lokiLabels)
+		h.bufValues = make([]*lokiValue, 0)
 
 		go h.worker()
 	}

@@ -48,7 +48,7 @@ func (l lokiLabels) equals(o lokiLabels) bool {
 }
 
 func (h *Hook) lokiLabels(e *logrus.Entry) lokiLabels {
-	l := lokiLabels{}
+	l := make(lokiLabels, len(h.labels))
 	for k, v := range h.labels {
 		l[k] = fmt.Sprint(v)
 	}
