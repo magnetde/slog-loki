@@ -141,7 +141,7 @@ func quoteIfNeeded(s string) string {
 	var b strings.Builder
 	b.Grow((2*len(s))/3 + 2)
 
-	if quoting {
+	if quoting || escape {
 		b.WriteByte('"')
 	}
 	if escape {
@@ -163,7 +163,7 @@ func quoteIfNeeded(s string) string {
 	} else {
 		b.WriteString(s)
 	}
-	if quoting {
+	if quoting || escape {
 		b.WriteByte('"')
 	}
 
