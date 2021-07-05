@@ -3,6 +3,7 @@ package loki
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -285,12 +286,24 @@ func (h *Hook) sendMessage(m *lokiMessage) error {
 		return nil
 	}
 
-	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		return err
+	errstr := fmt.Sprintf("unexpected HTTP status code %d", res.StatusCode)
+
+	if res.ContentLength > 0 {
+		errstr += ", response: "
+
+		if res.ContentLength < 1024 {
+			body, err := io.ReadAll(res.Body)
+			if err != nil {
+				return err
+			}
+
+			errstr += string(body)
+		} else {
+			errstr += fmt.Sprintf("%d bytes", res.ContentLength)
+		}
 	}
 
-	return fmt.Errorf("unexpected HTTP status code: %d, message: %s", res.StatusCode, body)
+	return errors.New(errstr)
 }
 
 func (h *Hook) logError(str string) {
