@@ -43,6 +43,7 @@ The call depends on the `Formatter`.
 
 - `WithName(string)`:  
   This adds the additional label "name" to all log entries sent to loki.
+  It is the only additional label, that is added to the log message if the default logger is used.
 - `WithLabel(string, interface{})`:  
   Similar to `WithName`, this adds an additional label to all log entries sent to loki.
 - `WithLabelsEnabled(...Label)`:  

@@ -19,6 +19,7 @@ import (
 //
 // The code is from logrus and has been highly modified.
 type logfmtFormatter struct {
+	name         string
 	removeColors bool
 }
 
@@ -26,6 +27,9 @@ type logfmtFormatter struct {
 func (f *logfmtFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 	var b bytes.Buffer
 
+	if f.name != "" {
+		f.appendKeyValue(&b, "name", f.name)
+	}
 	f.appendKeyValue(&b, logrus.FieldKeyLevel, entry.Level.String())
 	if entry.Message != "" {
 		f.appendKeyValue(&b, logrus.FieldKeyMsg, entry.Message)
@@ -120,11 +124,12 @@ func quoteIfNeeded(s string) string {
 	quoting := len(s) == 0 || s[0] == '"' || s[len(s)-1] == '"'
 	escape := false
 
+	// loop to save memory when we dont need to escape
 	for _, c := range s {
 		switch c {
 		case ' ', '=':
 			quoting = true
-		case '"', '\\':
+		case '\r', '\n', '\t', '\\', '"':
 			escape = true
 		}
 		if quoting && escape {
@@ -142,6 +147,12 @@ func quoteIfNeeded(s string) string {
 	if escape {
 		for _, c := range s {
 			switch c {
+			case '\r':
+				b.WriteString("\\r")
+			case '\n':
+				b.WriteString("\\n")
+			case '\t':
+				b.WriteString("\\t")
 			case '"', '\\':
 				b.WriteByte('\\')
 				fallthrough

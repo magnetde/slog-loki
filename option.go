@@ -20,6 +20,10 @@ type nameAttrOption string
 
 func (o nameAttrOption) apply(h *Hook) {
 	h.labels["name"] = string(o)
+
+	if f, ok := h.formatter.(*logfmtFormatter); ok {
+		f.name = string(o)
+	}
 }
 
 // WithLabel adds an extra labels to all log entries sent to loki.
