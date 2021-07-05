@@ -19,6 +19,7 @@ import (
 //
 // The code is from logrus and has been highly modified.
 type logfmtFormatter struct {
+	name         string
 	removeColors bool
 }
 
@@ -26,6 +27,9 @@ type logfmtFormatter struct {
 func (f *logfmtFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 	var b bytes.Buffer
 
+	if f.name != "" {
+		f.appendKeyValue(&b, "name", f.name)
+	}
 	f.appendKeyValue(&b, logrus.FieldKeyLevel, entry.Level.String())
 	if entry.Message != "" {
 		f.appendKeyValue(&b, logrus.FieldKeyMsg, entry.Message)
