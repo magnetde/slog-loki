@@ -30,8 +30,8 @@ const (
 	// see TestFlush
 	flushTest
 
-	// see TestSourceAttribute
-	sourceAttrTest
+	// see TestNameAttribute
+	nameAttrTest
 
 	// see TestLabel
 	labelTest
@@ -175,10 +175,10 @@ func checkMessages12_3(t *testing.T, msgs []*lokiMessage) {
 	}
 }
 
-// TestSourceAttribute tests:
-// - source attribute
-func TestSourceAttribute(t *testing.T) {
-	msgs, err := testInternal(sourceAttrTest)
+// TestNameAttribute tests:
+// - name attribute
+func TestNameAttribute(t *testing.T) {
+	msgs, err := testInternal(nameAttrTest)
 	require.NoError(t, err)
 
 	require.Len(t, msgs, 1, "one Loki message expected")
@@ -188,7 +188,7 @@ func TestSourceAttribute(t *testing.T) {
 
 	s := m.Streams[0]
 	require.Len(t, s.Stream, 1, "one label expected")
-	require.Contains(t, s.Stream, "source", `label "source" expected`)
+	require.Contains(t, s.Stream, "name", `label "name" expected`)
 }
 
 // TestLabel tests:
@@ -221,11 +221,11 @@ func TestLabelsEnabled(t *testing.T) {
 	s := m.Streams[0]
 
 	labels := s.Stream
-	require.Len(t, labels, 6, `expected 6 labels: "source", extra field "test", "time", "level", "func", "msg"`)
+	require.Len(t, labels, 6, `expected 6 labels: "name", extra field "test", "time", "level", "func", "msg"`)
 
 	for k, v := range labels {
 		switch k {
-		case "source":
+		case "name":
 			require.Equal(t, v, "test")
 		case "test":
 			require.Equal(t, v, "value")
@@ -407,13 +407,13 @@ func getOptions(typ TestType) []Option {
 	switch typ {
 	case defaultTest, formatTest, flushTest:
 		return nil
-	case sourceAttrTest:
-		return []Option{WithSource("test")}
+	case nameAttrTest:
+		return []Option{WithName("test")}
 	case labelTest:
 		return []Option{WithLabel("test", "test")}
 	case labelEnabledTest:
 		all := []Label{FieldsLabel, TimeLabel, LevelLabel, CallerLabel, MessageLabel}
-		return []Option{WithSource("test"), WithLabelsEnabled(all...)}
+		return []Option{WithName("test"), WithLabelsEnabled(all...)}
 	case formatterTest:
 		return []Option{WithFormatter(&logrus.JSONFormatter{})}
 	case removeColorTest:
@@ -454,7 +454,7 @@ func doLog(typ TestType, log *logrus.Logger, hook *Hook) {
 		log.Info("2")
 		hook.Flush()
 		log.Info("3")
-	case sourceAttrTest, labelTest:
+	case nameAttrTest, labelTest:
 		log.Info("test")
 	case labelEnabledTest:
 		log.SetReportCaller(true)

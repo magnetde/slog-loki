@@ -21,7 +21,7 @@ import (
 
 func main() {
 	// NewHook(url, ...options)
-	hook := loki.NewHook("http://localhost:3200", loki.WithSource("my-go-binary"), loki.WithMinLevel(log.InfoLevel))
+	hook := loki.NewHook("http://localhost:3200", loki.WithName("my-go-binary"), loki.WithMinLevel(log.InfoLevel))
 	defer hook.Close()
 
 	log.AddHook(hook)
@@ -33,7 +33,7 @@ func main() {
 ### Example call in Grafana
 
 ```
-{source=~"my-go-binary"} | logfmt | level =~ "warning|error|fatal|panic"
+{name="my-go-binary"} | logfmt | level =~ "warning|error|fatal|panic"
 ```
 
 This displays all log entries of the application, with a severity of at least "warning".
@@ -41,14 +41,14 @@ The call depends on the `Formatter`.
 
 ## Options
 
-- `WithSource(string)`:  
-  This adds the additional label "source" to all log entries sent to loki.
+- `WithName(string)`:  
+  This adds the additional label "name" to all log entries sent to loki.
 - `WithLabel(string, interface{})`:  
-  Similar to `WithSource`, this adds an additional label to all log entries sent to loki.
+  Similar to `WithName`, this adds an additional label to all log entries sent to loki.
 - `WithLabelsEnabled(...Label)`:  
-  Send additional attributes of the entry as labels. By default, only the source attribute is sent.  
+  Send additional attributes of the entry as labels. By default, only the name attribute is sent.  
   Available labels:
-  - labels added with `WithSource` or `WithLabel` are always added to log entires
+  - labels added with `WithName` or `WithLabel` are always added to log entires
   - `FieldsLabel`: add all extra fields as labels (`Entry.Data`)
   - `TimeLabel`: add the time as a label (`Entry.Time`)
   - `LevelLabel`: add the log level as a label (`Entry.Level`)

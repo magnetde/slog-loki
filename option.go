@@ -11,15 +11,15 @@ type Option interface {
 	apply(h *Hook)
 }
 
-// WithSource adds the additional label "source" to all log entries sent to loki.
-func WithSource(v string) Option {
-	return srcAttrOption(v)
+// WithName adds the additional label "name" to all log entries sent to loki.
+func WithName(v string) Option {
+	return nameAttrOption(v)
 }
 
-type srcAttrOption string
+type nameAttrOption string
 
-func (o srcAttrOption) apply(h *Hook) {
-	h.labels["source"] = string(o)
+func (o nameAttrOption) apply(h *Hook) {
+	h.labels["name"] = string(o)
 }
 
 // WithLabel adds an extra labels to all log entries sent to loki.

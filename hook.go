@@ -52,7 +52,6 @@ var _ logrus.Hook = (*Hook)(nil)
 
 // NewHook creates a hook to be added to an instance of logger.
 // Parameters:
-//  src: Source attribute; keep empty to ignore
 //  url: base url of Loki
 //  options: Ooptions for this hook; see README.md
 func NewHook(url string, options ...Option) *Hook {
