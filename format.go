@@ -116,7 +116,8 @@ func (f *logfmtFormatter) appendKeyValue(b *bytes.Buffer, key string, value inte
 // Quoting is done if either space or '=' occurs.
 // Only the characters `"` and `\` are escaped.
 func quoteIfNeeded(s string) string {
-	quoting := len(s) == 0
+	// check if string needs quoting or escaping
+	quoting := len(s) == 0 || s[0] == '"' || s[len(s)-1] == '"'
 	escape := false
 
 	for _, c := range s {
@@ -131,6 +132,7 @@ func quoteIfNeeded(s string) string {
 		}
 	}
 
+	// create the quoted / escaped string
 	var b strings.Builder
 	b.Grow((2*len(s))/3 + 2)
 

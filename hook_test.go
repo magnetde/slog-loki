@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -22,6 +23,9 @@ type TestType int
 const (
 	// see TestLokiHook
 	defaultTest TestType = iota
+
+	// see TestFormat
+	formatTest
 
 	// see TestFlush
 	flushTest
@@ -101,6 +105,33 @@ func TestLokiHook(t *testing.T) {
 		require.Equal(t, expected, val.Message, "sent log message differ")
 
 		last = val.Date
+	}
+}
+
+// TestFormat tests:
+// - if the sent log entry string has the correct format
+func TestFormat(t *testing.T) {
+	msgs, err := testInternal(formatTest)
+	require.NoError(t, err)
+
+	require.Len(t, msgs, 1, "one Loki message expected")
+
+	m := msgs[0]
+	require.Len(t, m.Streams, 1, "one Loki stream expected")
+
+	s := m.Streams[0]
+	require.Len(t, s.Values, 5, "5 Loki values expected")
+
+	expected := []string{
+		`level=info msg="test test"`,
+		`level=info msg="test=test"`,
+		`level=info msg="\"test\""`,
+		`level=info msg=test test="\"test\""`,
+		`level=error msg=test error=test`,
+	}
+
+	for i, v := range s.Values {
+		require.Equal(t, expected[i], v.Message)
 	}
 }
 
@@ -219,7 +250,14 @@ func TestLabelsEnabled(t *testing.T) {
 		}
 	}
 
-	// Do not test formatter because is is implemented by logrus
+	require.Len(t, s.Values, 1, "only one log entry expected")
+
+	regex, err := regexp.Compile(`^level=info msg=test func=.+_test.go:\d+:doLog\(\) test=value$`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	require.Regexp(t, regex, s.Values[0].Message)
 }
 
 // TestFormatter tests:
@@ -367,7 +405,7 @@ func TestSuppressErrors(t *testing.T) {
 
 func getOptions(typ TestType) []Option {
 	switch typ {
-	case defaultTest, flushTest:
+	case defaultTest, formatTest, flushTest:
 		return nil
 	case sourceAttrTest:
 		return []Option{WithSource("test")}
@@ -405,6 +443,12 @@ func doLog(typ TestType, log *logrus.Logger, hook *Hook) {
 		log.Info("test")
 		log.Warn("test")
 		log.Error("test")
+	case formatTest:
+		log.Info("test test")
+		log.Info("test=test")
+		log.Info(`"test"`)
+		log.WithField("test", `"test"`).Info("test")
+		log.WithError(errors.New("test")).Error("test")
 	case flushTest:
 		log.Info("1")
 		log.Info("2")
