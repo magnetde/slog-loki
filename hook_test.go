@@ -65,7 +65,8 @@ const (
 
 // Initialize logrus and run all tests.
 func TestMain(m *testing.M) {
-	logrus.SetFormatter(defaultFormatter)
+	f := &logrus.TextFormatter{DisableTimestamp: true, DisableColors: true, CallerPrettyfier: callerPrettyfier}
+	logrus.SetFormatter(f)
 
 	code := m.Run()
 	os.Exit(code)
@@ -94,7 +95,7 @@ func TestLokiHook(t *testing.T) {
 	var last time.Time
 	for i, val := range v {
 		expectlv := logrus.AllLevels[len(logrus.AllLevels)-1-i]
-		expected := fmt.Sprintf("level=%s msg=test\n", expectlv.String())
+		expected := fmt.Sprintf("level=%s msg=test", expectlv.String())
 
 		require.True(t, !last.After(val.Date), "logs should have a monotonously increasing timestamp")
 		require.Equal(t, expected, val.Message, "sent log message differ")
@@ -134,11 +135,11 @@ func checkMessages12_3(t *testing.T, msgs []*lokiMessage) {
 		if i == 0 {
 			require.Lenf(t, s.Values, 2, "2 Loki values in message %d expected", i+1)
 
-			require.Equal(t, s.Values[0].Message, "level=info msg=1\n")
-			require.Equal(t, s.Values[1].Message, "level=info msg=2\n")
+			require.Equal(t, s.Values[0].Message, "level=info msg=1")
+			require.Equal(t, s.Values[1].Message, "level=info msg=2")
 		} else {
 			require.Lenf(t, s.Values, 1, "one Loki value in message %d expected", i+1)
-			require.Equal(t, s.Values[0].Message, "level=info msg=3\n")
+			require.Equal(t, s.Values[0].Message, "level=info msg=3")
 		}
 	}
 }
@@ -255,7 +256,7 @@ func TestRemoveColors(t *testing.T) {
 	v := m.Streams[0].Values
 	require.Len(t, v, 1, "1 log value expected")
 
-	require.Equal(t, "level=info msg=test\n", v[0].Message, "unexpected message")
+	require.Equal(t, "level=info msg=test", v[0].Message, "unexpected message")
 }
 
 // TestMinimumLevel tests:
@@ -270,7 +271,7 @@ func TestMinimumLevel(t *testing.T) {
 	v := m.Streams[0].Values
 	require.Len(t, v, 1, "1 log value expected")
 
-	require.Equal(t, "level=warning msg=test\n", v[0].Message, "unexpected message")
+	require.Equal(t, "level=warning msg=test", v[0].Message, "unexpected message")
 }
 
 // TestBatchInterval tests:
@@ -287,7 +288,7 @@ func TestFlushWait(t *testing.T) {
 
 		s := m.Streams[0]
 		require.Lenf(t, s.Values, 1, "one Loki value in message %d expected", i+1)
-		require.Equal(t, s.Values[0].Message, fmt.Sprintf("level=info msg=%d\n", i+1))
+		require.Equal(t, s.Values[0].Message, fmt.Sprintf("level=info msg=%d", i+1))
 	}
 }
 
@@ -322,7 +323,7 @@ func TestSynchronous(t *testing.T) {
 
 		s := m.Streams[0]
 		require.Lenf(t, s.Values, 1, "one Loki value in message %d expected", i+1)
-		require.Equal(t, s.Values[0].Message, fmt.Sprintf("level=info msg=%d\n", i+1))
+		require.Equal(t, s.Values[0].Message, fmt.Sprintf("level=info msg=%d", i+1))
 	}
 }
 

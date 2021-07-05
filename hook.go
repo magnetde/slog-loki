@@ -25,9 +25,8 @@ type Hook struct {
 	labels        map[string]interface{}
 	labelsEnabled []Label
 
-	formatter    logrus.Formatter
-	removeColors bool
-	level        logrus.Level
+	formatter logrus.Formatter
+	level     logrus.Level
 
 	batchInterval time.Duration
 	batchSize     int
@@ -66,8 +65,7 @@ func NewHook(url string, options ...Option) *Hook {
 		// default values
 		labels:         make(map[string]interface{}),
 		labelsEnabled:  nil,
-		formatter:      defaultFormatter,
-		removeColors:   false,
+		formatter:      &logfmtFormatter{removeColors: false},
 		level:          logrus.TraceLevel,
 		batchInterval:  10 * time.Second,
 		batchSize:      1000,
@@ -77,10 +75,6 @@ func NewHook(url string, options ...Option) *Hook {
 
 	for _, o := range options {
 		o.apply(h)
-	}
-
-	if h.removeColors {
-		h.formatter = &noColorFormatter{formatter: h.formatter}
 	}
 
 	if !h.synchronous {

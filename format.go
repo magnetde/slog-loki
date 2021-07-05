@@ -1,23 +1,160 @@
 package loki
 
 import (
+	"bytes"
+	"fmt"
 	"regexp"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/sirupsen/logrus"
 )
 
-var defaultFormatter = &logrus.TextFormatter{DisableTimestamp: true, DisableColors: true, CallerPrettyfier: callerPrettyfier}
-
-type noColorFormatter struct {
-	formatter logrus.Formatter
+// logfmtFormatter is the default formatter for log entries sent to Loki and they are sent in logfmt format.
+// The difference to logrus.TextFormatter is that some fields are disabled by default (e.g. timestamp) and
+// values are quoted differently: the only characters that are escaped are `"` and `\`.
+// Additionally, ANSI colors can be removed before quoting depending on the setting.
+//
+// The code is from logrus and has been highly modified.
+type logfmtFormatter struct {
+	removeColors bool
 }
 
-func (f *noColorFormatter) Format(e *logrus.Entry) ([]byte, error) {
-	e.Message = removeColors(e.Message)
-	return f.formatter.Format(e)
+// Format creates the logfmt string from the log entry.
+func (f *logfmtFormatter) Format(entry *logrus.Entry) ([]byte, error) {
+	var b bytes.Buffer
+
+	f.appendKeyValue(&b, logrus.FieldKeyLevel, entry.Level.String())
+	if entry.Message != "" {
+		f.appendKeyValue(&b, logrus.FieldKeyMsg, entry.Message)
+	}
+	if entry.HasCaller() {
+		funcVal, _ := callerPrettyfier(entry.Caller)
+
+		if funcVal != "" {
+			f.appendKeyValue(&b, logrus.FieldKeyFunc, funcVal)
+		}
+	}
+
+	// Add extra fields
+	data := make(logrus.Fields)
+	for k, v := range entry.Data {
+		data[k] = v
+	}
+
+	prefixFieldClashes(data, entry.HasCaller())
+
+	keys := make([]string, 0, len(data))
+	for k := range data {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, key := range keys {
+		f.appendKeyValue(&b, key, data[key])
+	}
+
+	return b.Bytes(), nil
+}
+
+func prefixFieldClashes(data logrus.Fields, withCaller bool) {
+	timeKey := logrus.FieldKeyTime
+	if t, ok := data[timeKey]; ok {
+		data["fields."+timeKey] = t
+		delete(data, timeKey)
+	}
+
+	msgKey := logrus.FieldKeyMsg
+	if m, ok := data[msgKey]; ok {
+		data["fields."+msgKey] = m
+		delete(data, msgKey)
+	}
+
+	levelKey := logrus.FieldKeyLevel
+	if l, ok := data[levelKey]; ok {
+		data["fields."+levelKey] = l
+		delete(data, levelKey)
+	}
+
+	logrusErrKey := logrus.FieldKeyLogrusError
+	if l, ok := data[logrusErrKey]; ok {
+		data["fields."+logrusErrKey] = l
+		delete(data, logrusErrKey)
+	}
+
+	if withCaller {
+		funcKey := logrus.FieldKeyFunc
+		if l, ok := data[funcKey]; ok {
+			data["fields."+funcKey] = l
+		}
+	}
+}
+
+func (f *logfmtFormatter) appendKeyValue(b *bytes.Buffer, key string, value interface{}) {
+	if b.Len() > 0 {
+		b.WriteByte(' ')
+	}
+	b.WriteString(key)
+	b.WriteByte('=')
+
+	var strValue string
+	if s, ok := value.(string); ok {
+		strValue = s
+	} else {
+		strValue = fmt.Sprint(value)
+	}
+	if f.removeColors {
+		strValue = removeColors(strValue)
+	}
+
+	b.WriteString(quoteIfNeeded(strValue))
+}
+
+// quoteIfNeeded adds quotation marks to the string if needed.
+// Quoting is done if either space or '=' occurs.
+// Only the characters `"` and `\` are escaped.
+func quoteIfNeeded(s string) string {
+	quoting := len(s) == 0
+	escape := false
+
+	for _, c := range s {
+		switch c {
+		case ' ', '=':
+			quoting = true
+		case '"', '\\':
+			escape = true
+		}
+		if quoting && escape {
+			break
+		}
+	}
+
+	var b strings.Builder
+	b.Grow((2*len(s))/3 + 2)
+
+	if quoting {
+		b.WriteByte('"')
+	}
+	if escape {
+		for _, c := range s {
+			switch c {
+			case '"', '\\':
+				b.WriteByte('\\')
+				fallthrough
+			default:
+				b.WriteRune(c)
+			}
+		}
+	} else {
+		b.WriteString(s)
+	}
+	if quoting {
+		b.WriteByte('"')
+	}
+
+	return b.String()
 }
 
 var colorParts = []string{
