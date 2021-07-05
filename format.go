@@ -124,11 +124,12 @@ func quoteIfNeeded(s string) string {
 	quoting := len(s) == 0 || s[0] == '"' || s[len(s)-1] == '"'
 	escape := false
 
+	// loop to save memory when we dont need to escape
 	for _, c := range s {
 		switch c {
 		case ' ', '=':
 			quoting = true
-		case '"', '\\':
+		case '\r', '\n', '\t', '\\', '"':
 			escape = true
 		}
 		if quoting && escape {
@@ -146,6 +147,12 @@ func quoteIfNeeded(s string) string {
 	if escape {
 		for _, c := range s {
 			switch c {
+			case '\r':
+				b.WriteString("\\r")
+			case '\n':
+				b.WriteString("\\n")
+			case '\t':
+				b.WriteString("\\t")
 			case '"', '\\':
 				b.WriteByte('\\')
 				fallthrough
