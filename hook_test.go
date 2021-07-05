@@ -470,11 +470,7 @@ func testInternal(typ TestType) ([]*lokiMessage, error) {
 
 	url := server.URL
 	ops := getOptions(typ)
-
-	hook, err := NewHook(url, ops...)
-	if err != nil {
-		return nil, err
-	}
+	hook := NewHook(url, ops...)
 
 	logger.AddHook(hook)
 

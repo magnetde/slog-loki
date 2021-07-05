@@ -3,7 +3,6 @@ package loki
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -56,9 +55,9 @@ var _ logrus.Hook = (*Hook)(nil)
 //  src: Source attribute; keep empty to ignore
 //  url: base url of Loki
 //  options: Ooptions for this hook; see README.md
-func NewHook(url string, options ...Option) (*Hook, error) {
+func NewHook(url string, options ...Option) *Hook {
 	if url == "" {
-		return nil, errors.New("empty url")
+		url = "http://localhost:3100"
 	}
 
 	h := &Hook{
@@ -93,7 +92,7 @@ func NewHook(url string, options ...Option) (*Hook, error) {
 		go h.worker()
 	}
 
-	return h, nil
+	return h
 }
 
 // Fire sends a log entry to Loki.
