@@ -58,7 +58,7 @@ The call depends on the `Formatter`.
   By default, the `TextFormatter` with disabled colors and disabled timestamp is used.
   Additional, it formats the caller in format `("file:line:func()", "")` (empty file value).
 - `WithRemoveColors(bool)`:  
-  Remove ANSI colors from the serialized log entry.
+  Remove ANSI colors from the serialized log entry. This only works with the default formatter.
 - `WithMinLevel(logrus.Level)`:  
   Minimum level for log entries. All entries that have a lower severity are ignored.
 - `WithBatchInterval(time.Duration)`:  

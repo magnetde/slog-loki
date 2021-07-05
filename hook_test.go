@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -22,6 +23,9 @@ type TestType int
 const (
 	// see TestLokiHook
 	defaultTest TestType = iota
+
+	// see TestFormat
+	formatTest
 
 	// see TestFlush
 	flushTest
@@ -65,7 +69,8 @@ const (
 
 // Initialize logrus and run all tests.
 func TestMain(m *testing.M) {
-	logrus.SetFormatter(defaultFormatter)
+	f := &logrus.TextFormatter{DisableTimestamp: true, DisableColors: true, CallerPrettyfier: callerPrettyfier}
+	logrus.SetFormatter(f)
 
 	code := m.Run()
 	os.Exit(code)
@@ -94,12 +99,39 @@ func TestLokiHook(t *testing.T) {
 	var last time.Time
 	for i, val := range v {
 		expectlv := logrus.AllLevels[len(logrus.AllLevels)-1-i]
-		expected := fmt.Sprintf("level=%s msg=test\n", expectlv.String())
+		expected := fmt.Sprintf("level=%s msg=test", expectlv.String())
 
 		require.True(t, !last.After(val.Date), "logs should have a monotonously increasing timestamp")
 		require.Equal(t, expected, val.Message, "sent log message differ")
 
 		last = val.Date
+	}
+}
+
+// TestFormat tests:
+// - if the sent log entry string has the correct format
+func TestFormat(t *testing.T) {
+	msgs, err := testInternal(formatTest)
+	require.NoError(t, err)
+
+	require.Len(t, msgs, 1, "one Loki message expected")
+
+	m := msgs[0]
+	require.Len(t, m.Streams, 1, "one Loki stream expected")
+
+	s := m.Streams[0]
+	require.Len(t, s.Values, 5, "5 Loki values expected")
+
+	expected := []string{
+		`level=info msg="test test"`,
+		`level=info msg="test=test"`,
+		`level=info msg="\"test\""`,
+		`level=info msg=test test="\"test\""`,
+		`level=error msg=test error=test`,
+	}
+
+	for i, v := range s.Values {
+		require.Equal(t, expected[i], v.Message)
 	}
 }
 
@@ -134,11 +166,11 @@ func checkMessages12_3(t *testing.T, msgs []*lokiMessage) {
 		if i == 0 {
 			require.Lenf(t, s.Values, 2, "2 Loki values in message %d expected", i+1)
 
-			require.Equal(t, s.Values[0].Message, "level=info msg=1\n")
-			require.Equal(t, s.Values[1].Message, "level=info msg=2\n")
+			require.Equal(t, s.Values[0].Message, "level=info msg=1")
+			require.Equal(t, s.Values[1].Message, "level=info msg=2")
 		} else {
 			require.Lenf(t, s.Values, 1, "one Loki value in message %d expected", i+1)
-			require.Equal(t, s.Values[0].Message, "level=info msg=3\n")
+			require.Equal(t, s.Values[0].Message, "level=info msg=3")
 		}
 	}
 }
@@ -218,7 +250,14 @@ func TestLabelsEnabled(t *testing.T) {
 		}
 	}
 
-	// Do not test formatter because is is implemented by logrus
+	require.Len(t, s.Values, 1, "only one log entry expected")
+
+	regex, err := regexp.Compile(`^level=info msg=test func=.+_test.go:\d+:doLog\(\) test=value$`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	require.Regexp(t, regex, s.Values[0].Message)
 }
 
 // TestFormatter tests:
@@ -255,7 +294,7 @@ func TestRemoveColors(t *testing.T) {
 	v := m.Streams[0].Values
 	require.Len(t, v, 1, "1 log value expected")
 
-	require.Equal(t, "level=info msg=test\n", v[0].Message, "unexpected message")
+	require.Equal(t, "level=info msg=test", v[0].Message, "unexpected message")
 }
 
 // TestMinimumLevel tests:
@@ -270,7 +309,7 @@ func TestMinimumLevel(t *testing.T) {
 	v := m.Streams[0].Values
 	require.Len(t, v, 1, "1 log value expected")
 
-	require.Equal(t, "level=warning msg=test\n", v[0].Message, "unexpected message")
+	require.Equal(t, "level=warning msg=test", v[0].Message, "unexpected message")
 }
 
 // TestBatchInterval tests:
@@ -287,7 +326,7 @@ func TestFlushWait(t *testing.T) {
 
 		s := m.Streams[0]
 		require.Lenf(t, s.Values, 1, "one Loki value in message %d expected", i+1)
-		require.Equal(t, s.Values[0].Message, fmt.Sprintf("level=info msg=%d\n", i+1))
+		require.Equal(t, s.Values[0].Message, fmt.Sprintf("level=info msg=%d", i+1))
 	}
 }
 
@@ -322,7 +361,7 @@ func TestSynchronous(t *testing.T) {
 
 		s := m.Streams[0]
 		require.Lenf(t, s.Values, 1, "one Loki value in message %d expected", i+1)
-		require.Equal(t, s.Values[0].Message, fmt.Sprintf("level=info msg=%d\n", i+1))
+		require.Equal(t, s.Values[0].Message, fmt.Sprintf("level=info msg=%d", i+1))
 	}
 }
 
@@ -366,7 +405,7 @@ func TestSuppressErrors(t *testing.T) {
 
 func getOptions(typ TestType) []Option {
 	switch typ {
-	case defaultTest, flushTest:
+	case defaultTest, formatTest, flushTest:
 		return nil
 	case sourceAttrTest:
 		return []Option{WithSource("test")}
@@ -404,6 +443,12 @@ func doLog(typ TestType, log *logrus.Logger, hook *Hook) {
 		log.Info("test")
 		log.Warn("test")
 		log.Error("test")
+	case formatTest:
+		log.Info("test test")
+		log.Info("test=test")
+		log.Info(`"test"`)
+		log.WithField("test", `"test"`).Info("test")
+		log.WithError(errors.New("test")).Error("test")
 	case flushTest:
 		log.Info("1")
 		log.Info("2")

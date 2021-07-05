@@ -60,7 +60,7 @@ func (o formatterOption) apply(h *Hook) {
 	h.formatter = o.f
 }
 
-// WithRemoveColors removes colors from the serialized log entry.
+// WithRemoveColors removes colors from the serialized log entry. This only works with the default formatter.
 func WithRemoveColors(v bool) Option {
 	return removeColorsOption(v)
 }
@@ -68,7 +68,9 @@ func WithRemoveColors(v bool) Option {
 type removeColorsOption bool
 
 func (o removeColorsOption) apply(h *Hook) {
-	h.removeColors = bool(o)
+	if f, ok := h.formatter.(*logfmtFormatter); ok {
+		f.removeColors = bool(o)
+	}
 }
 
 // WithLevel ignores all log entries with a severity below the level.
