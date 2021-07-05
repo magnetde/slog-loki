@@ -252,7 +252,7 @@ func TestLabelsEnabled(t *testing.T) {
 
 	require.Len(t, s.Values, 1, "only one log entry expected")
 
-	regex, err := regexp.Compile(`^level=info msg=test func=.+_test.go:\d+:doLog\(\) test=value$`)
+	regex, err := regexp.Compile(`^name=test level=info msg=test func=.+_test.go:\d+:doLog\(\) test=value$`)
 	if err != nil {
 		t.Fatal(err)
 	}
