@@ -3,6 +3,7 @@ package loki
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -25,9 +26,8 @@ type Hook struct {
 	labels        map[string]interface{}
 	labelsEnabled []Label
 
-	formatter    logrus.Formatter
-	removeColors bool
-	level        logrus.Level
+	formatter logrus.Formatter
+	level     logrus.Level
 
 	batchInterval time.Duration
 	batchSize     int
@@ -52,7 +52,6 @@ var _ logrus.Hook = (*Hook)(nil)
 
 // NewHook creates a hook to be added to an instance of logger.
 // Parameters:
-//  src: Source attribute; keep empty to ignore
 //  url: base url of Loki
 //  options: Ooptions for this hook; see README.md
 func NewHook(url string, options ...Option) *Hook {
@@ -66,8 +65,7 @@ func NewHook(url string, options ...Option) *Hook {
 		// default values
 		labels:         make(map[string]interface{}),
 		labelsEnabled:  nil,
-		formatter:      defaultFormatter,
-		removeColors:   false,
+		formatter:      &logfmtFormatter{removeColors: false},
 		level:          logrus.TraceLevel,
 		batchInterval:  10 * time.Second,
 		batchSize:      1000,
@@ -77,10 +75,6 @@ func NewHook(url string, options ...Option) *Hook {
 
 	for _, o := range options {
 		o.apply(h)
-	}
-
-	if h.removeColors {
-		h.formatter = &noColorFormatter{formatter: h.formatter}
 	}
 
 	if !h.synchronous {
@@ -291,12 +285,24 @@ func (h *Hook) sendMessage(m *lokiMessage) error {
 		return nil
 	}
 
-	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		return err
+	errstr := fmt.Sprintf("unexpected HTTP status code %d", res.StatusCode)
+
+	if res.ContentLength > 0 {
+		errstr += ", response: "
+
+		if res.ContentLength < 1024 {
+			body, err := io.ReadAll(res.Body)
+			if err != nil {
+				return err
+			}
+
+			errstr += string(body)
+		} else {
+			errstr += fmt.Sprintf("%d bytes", res.ContentLength)
+		}
 	}
 
-	return fmt.Errorf("unexpected HTTP status code: %d, message: %s", res.StatusCode, body)
+	return errors.New(errstr)
 }
 
 func (h *Hook) logError(str string) {

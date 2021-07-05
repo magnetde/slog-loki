@@ -11,15 +11,15 @@ type Option interface {
 	apply(h *Hook)
 }
 
-// WithSource adds the additional label "source" to all log entries sent to loki.
-func WithSource(v string) Option {
-	return srcAttrOption(v)
+// WithName adds the additional label "name" to all log entries sent to loki.
+func WithName(v string) Option {
+	return nameAttrOption(v)
 }
 
-type srcAttrOption string
+type nameAttrOption string
 
-func (o srcAttrOption) apply(h *Hook) {
-	h.labels["source"] = string(o)
+func (o nameAttrOption) apply(h *Hook) {
+	h.labels["name"] = string(o)
 }
 
 // WithLabel adds an extra labels to all log entries sent to loki.
@@ -60,7 +60,7 @@ func (o formatterOption) apply(h *Hook) {
 	h.formatter = o.f
 }
 
-// WithRemoveColors removes colors from the serialized log entry.
+// WithRemoveColors removes colors from the serialized log entry. This only works with the default formatter.
 func WithRemoveColors(v bool) Option {
 	return removeColorsOption(v)
 }
@@ -68,7 +68,9 @@ func WithRemoveColors(v bool) Option {
 type removeColorsOption bool
 
 func (o removeColorsOption) apply(h *Hook) {
-	h.removeColors = bool(o)
+	if f, ok := h.formatter.(*logfmtFormatter); ok {
+		f.removeColors = bool(o)
+	}
 }
 
 // WithLevel ignores all log entries with a severity below the level.
