@@ -286,17 +286,21 @@ func (h *Hook) sendMessage(m *lokiMessage) error {
 		return nil
 	}
 
-	errstr := fmt.Sprintf("unexpected HTTP status code %d, response: ", res.StatusCode)
+	errstr := fmt.Sprintf("unexpected HTTP status code %d", res.StatusCode)
 
-	if res.ContentLength < 1024 {
-		body, err := io.ReadAll(res.Body)
-		if err != nil {
-			return err
+	if res.ContentLength > 0 {
+		errstr += ", response: "
+
+		if res.ContentLength < 1024 {
+			body, err := io.ReadAll(res.Body)
+			if err != nil {
+				return err
+			}
+
+			errstr += string(body)
+		} else {
+			errstr += fmt.Sprintf("%d bytes", res.ContentLength)
 		}
-
-		errstr += string(body)
-	} else {
-		errstr += fmt.Sprintf("%d bytes", res.ContentLength)
 	}
 
 	return errors.New(errstr)
