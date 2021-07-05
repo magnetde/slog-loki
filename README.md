@@ -20,13 +20,10 @@ import (
 )
 
 func main() {
-	// NewHook(source, url, ...options)
-	hook, err := loki.NewHook("http://localhost:3200", loki.WithSource("my-go-binary"), loki.WithMinLevel(log.InfoLevel))
-	if err != nil {
-		// ...
-	}
-
+	// NewHook(url, ...options)
+	hook := loki.NewHook("http://localhost:3200", loki.WithSource("my-go-binary"), loki.WithMinLevel(log.InfoLevel))
 	defer hook.Close()
+
 	log.AddHook(hook)
 
 	// ...
