@@ -1,5 +1,20 @@
 image: golang:1.16
 
+variables:
+  REPO_NAME: github.com/fabian/loki
+  GOPATH: $CI_PROJECT_DIR/go
+
+before_script:
+  - export PATH=$(go env GOPATH)/bin:$PATH
+  - mkdir -p $GOPATH/src/$(dirname $REPO_NAME)
+  - ln -svf $CI_PROJECT_DIR $GOPATH/src/$REPO_NAME
+  - cd $GOPATH/src/$REPO_NAME
+
+cache:
+  key: ${CI_COMMIT_REF_SLUG}
+  paths:
+    - go/pkg/mod/
+
 stages:
   - build
   - test
