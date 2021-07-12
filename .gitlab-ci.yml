@@ -34,3 +34,4 @@ test:
   artifacts:
     reports:
       cobertura: cobertura-coverage.xml
+    expire_in: 90d
