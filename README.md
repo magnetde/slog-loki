@@ -1,9 +1,9 @@
 This repository is a mirror of a private GitLab instance. All changes will be overwritten.
 
-# Loki Hook for logrus
+# Loki handler for slog
 
-This hook allows logging with [logrus](https://github.com/Sirupsen/logrus) to [Loki](https://github.com/grafana/loki).
-Logs are sent in [logfmt](https://github.com/kr/logfmt) format.
+This handler allows logging with [slog](https://pkg.go.dev/log/slog) to [Loki](https://github.com/grafana/loki).
+By default, logs are sent asynchronously in batches and are encoded in the format of `slog.TextHandler` (logfmt).
 
 ```
 go get github.com/magnetde/loki
@@ -15,25 +15,27 @@ go get github.com/magnetde/loki
 package main
 
 import (
-	log "github.com/sirupsen/logrus"
+	"log/slog"
 	"github.com/magnetde/loki"
 )
 
 func main() {
-	// NewHook(url, ...options)
-	hook := loki.NewHook("http://localhost:3200", loki.WithName("my-go-binary"), loki.WithMinLevel(log.InfoLevel))
-	defer hook.Close()
+	// NewHandler(url, ...options)
+	handler := loki.NewHandler("http://localhost:3200", loki.WithName("my-go-binary"))
+	defer handler.Close()
 
-	log.AddHook(hook)
+	slog.SetDefault(slog.New(handler))
 
 	// ...
 }
 ```
 
+The package [slog-multi](https://github.com/samber/slog-multi) is recommended to simultaneously log to the console and to Loki.
+
 ### Example call in Grafana
 
 ```
-{name="my-go-binary"} | logfmt | level =~ "warning|error|fatal|panic"
+{name="my-go-binary"} | logfmt | level =~ "warning|error"
 ```
 
 This displays all log entries of the application, with a severity of at least "warning".
@@ -44,29 +46,33 @@ The call depends on the `Formatter`.
 - `WithName(string)`:  
   This adds the additional label "name" to all log entries sent to loki.
   It is the only additional label, that is added to the log message if the default logger is used.
-- `WithLabel(string, interface{})`:  
+- `WithLabel(string, any)`:  
   Similar to `WithName`, this adds an additional label to all log entries sent to loki.
 - `WithLabelsEnabled(...Label)`:  
   Send additional attributes of the entry as labels. By default, only the name attribute is sent.  
   Available labels:
   - labels added with `WithName` or `WithLabel` are always added to log entires
-  - `FieldsLabel`: add all extra fields as labels (`Entry.Data`)
-  - `TimeLabel`: add the time as a label (`Entry.Time`)
-  - `LevelLabel`: add the log level as a label (`Entry.Level`)
-  - `CallerLabel`: add the caller with format `"[file]:[line]:[function]"` (`Entry.Caller`)
-  - `MessageLabel`: add the message as a label (`Entry.Message`)
-- `WithFormatter(logrus.Formatter)`:  
-  By default, the `TextFormatter` with disabled colors and disabled timestamp is used.
-  Additional, it formats the caller in format `("file:line:func()", "")` (empty file value).
-- `WithRemoveColors(bool)`:  
-  Remove ANSI colors from the serialized log entry. This only works with the default formatter.
-- `WithMinLevel(logrus.Level)`:  
-  Minimum level for log entries. All entries that have a lower severity are ignored.
+  - `LabelAttrs`: add all extra attributes as labels
+  - `LabelTime`: add the time as a label
+  - `LabelLevel`: add the log level as a label
+  - `LabelCaller`: add the caller with format `"[file]:[line]:[function]"`
+  - `LabelMessage`: add the message as a label
+  - `LabelAll`: add all fields and attributes as labels
+- `WithHandler(func(w io.Writer) slog.Handler)`:  
+  The handler can be set to change the format of log entries. In this case, the handler is required to write the log entries to the writer `w`.
+  Example for log entries in JSON format:
+  ```go
+  WithHandler(func(w io.Writer) slog.Handler {
+      return slog.NewJSONHandler(w, &slog.HandlerOptions{
+          // ...
+      })
+  })
+  ```
+- `WithSynchronous(bool)`:  
+  By default (async mode), log entries are processed in a separate Go routine. If synchronous sending is used, batch interval and size are ignored.
 - `WithBatchInterval(time.Duration)`:  
   Batch interval. If this interval has been reached since the last sending, all log entries collected so far will be sent (default: 10 seconds).
 - `WithBatchSize(int)`:  
   Maximum batch size. If the number of collected log entries is exceeded, all collected entries will be sent (default: 1000).
-- `WithSynchronous(bool)`:  
-  By default (async mode), log entries are processed in a separate Go routine. If synchronous sending is used, batch interval and size are ignored.
-- `WithSuppressErrors(bool)`:  
-  Errors at asynchronous mode are logged to the console. This disables the logging of errors. Ignored at synchronous mode.
+- `WithErrorHandler(bool)`:  
+  Sets the error handler in asynchronous mode. Ignored at synchronous mode.

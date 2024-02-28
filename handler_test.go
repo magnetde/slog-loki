@@ -1,24 +1,25 @@
 package loki
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
 
-type TestType int
+type TestType uint
 
 const (
 	// see TestLokiHook
@@ -39,11 +40,8 @@ const (
 	// see TestLabelsEnabled
 	labelEnabledTest
 
-	// see TestFormatter
-	formatterTest
-
-	// see TestRemoveColors
-	removeColorTest
+	// see TestHandler
+	handlerTest
 
 	// see TestMinLevel
 	minLevelTest
@@ -63,25 +61,16 @@ const (
 	// see TestErrors
 	errorsTest
 
-	// see TestSuppressErrors
-	suppressErrorsTest
+	// see TestIgnoreErrors
+	errorsIgnoreTest
 )
 
-// Initialize logrus and run all tests.
-func TestMain(m *testing.M) {
-	f := &logrus.TextFormatter{DisableTimestamp: true, DisableColors: true, CallerPrettyfier: callerPrettyfier}
-	logrus.SetFormatter(f)
-
-	code := m.Run()
-	os.Exit(code)
-}
-
-// TestLokiHook tests:
+// TestLokiHandler tests:
 // - different levels
 // - labels at default settings
 // - increasing dates at loki values
 // - log messages
-func TestLokiHook(t *testing.T) {
+func TestLokiHandler(t *testing.T) {
 	msgs, err := testInternal(defaultTest)
 	require.NoError(t, err)
 
@@ -92,20 +81,28 @@ func TestLokiHook(t *testing.T) {
 
 	s := m.Streams[0]
 	require.Len(t, s.Stream, 0, "one label expected")
+	require.Len(t, s.Values, 4, "4 log values expected")
 
-	v := s.Values
-	require.Len(t, v, 5, "5 log values expected")
+	levels := []slog.Level{
+		slog.LevelDebug,
+		slog.LevelInfo,
+		slog.LevelWarn,
+		slog.LevelError,
+	}
 
 	var last time.Time
-	for i, val := range v {
-		expectlv := logrus.AllLevels[len(logrus.AllLevels)-1-i]
-		expected := fmt.Sprintf("level=%s msg=test", expectlv.String())
+	for i, val := range s.Values {
+		expected := fmt.Sprintf("level=%s msg=test", levels[i].String())
 
-		require.True(t, !last.After(val.Date), "logs should have a monotonously increasing timestamp")
-		require.Equal(t, expected, val.Message, "sent log message differ")
+		require.True(t, !last.After(val.time), "logs should have a monotonously increasing timestamp")
+		requireMessage(t, expected, val.message)
 
-		last = val.Date
+		last = val.time
 	}
+}
+
+func requireMessage(t *testing.T, expected, message string) {
+	require.Truef(t, strings.HasSuffix(message, expected), "sent log message %q needs to have the suffix %q", message, expected)
 }
 
 // TestFormat tests:
@@ -123,15 +120,15 @@ func TestFormat(t *testing.T) {
 	require.Len(t, s.Values, 5, "5 Loki values expected")
 
 	expected := []string{
-		`level=info msg="test test"`,
-		`level=info msg="test=test"`,
-		`level=info msg="\"test\""`,
-		`level=info msg=test test="\"test\""`,
-		`level=error msg=test error=test`,
+		`level=INFO msg="test test"`,
+		`level=INFO msg="test=test"`,
+		`level=INFO msg="\"test\""`,
+		`level=INFO msg=test test="\"test\""`,
+		`level=ERROR msg=test error=test`,
 	}
 
 	for i, v := range s.Values {
-		require.Equal(t, expected[i], v.Message)
+		requireMessage(t, expected[i], v.message)
 	}
 }
 
@@ -145,8 +142,8 @@ func TestFlush(t *testing.T) {
 
 	checkMessages12_3(t, msgs)
 
-	v1 := msgs[0].Streams[0].Values[1].Date // 2. value in 1. message
-	v2 := msgs[1].Streams[0].Values[0].Date // 1. value in 2. message
+	v1 := msgs[0].Streams[0].Values[1].time // 2. value in 1. message
+	v2 := msgs[1].Streams[0].Values[0].time // 1. value in 2. message
 
 	require.True(t, v1.Before(v2), "logs should have a monotonously increasing timestamp")
 }
@@ -166,11 +163,11 @@ func checkMessages12_3(t *testing.T, msgs []*lokiMessage) {
 		if i == 0 {
 			require.Lenf(t, s.Values, 2, "2 Loki values in message %d expected", i+1)
 
-			require.Equal(t, s.Values[0].Message, "level=info msg=1")
-			require.Equal(t, s.Values[1].Message, "level=info msg=2")
+			requireMessage(t, "level=INFO msg=1", s.Values[0].message)
+			requireMessage(t, "level=INFO msg=2", s.Values[1].message)
 		} else {
 			require.Lenf(t, s.Values, 1, "one Loki value in message %d expected", i+1)
-			require.Equal(t, s.Values[0].Message, "level=info msg=3")
+			requireMessage(t, "level=INFO msg=3", s.Values[0].message)
 		}
 	}
 }
@@ -208,7 +205,7 @@ func TestLabel(t *testing.T) {
 }
 
 // TestLabel tests:
-// - all available logrus attributes as labels
+// - all available attributes as labels
 func TestLabelsEnabled(t *testing.T) {
 	msgs, err := testInternal(labelEnabledTest)
 	require.NoError(t, err)
@@ -236,7 +233,7 @@ func TestLabelsEnabled(t *testing.T) {
 			since := time.Since(date)
 			require.Less(t, since, 1*time.Second, "log time should be less than 1 second ago")
 		case "level":
-			require.Equal(t, v, logrus.InfoLevel.String())
+			require.Equal(t, v, slog.LevelInfo.String())
 		case "func":
 			parts := strings.Split(v, ":")
 			require.Len(t, parts, 3, "malformed func value")
@@ -252,18 +249,18 @@ func TestLabelsEnabled(t *testing.T) {
 
 	require.Len(t, s.Values, 1, "only one log entry expected")
 
-	regex, err := regexp.Compile(`^name=test level=info msg=test func=.+_test.go:\d+:doLog\(\) test=value$`)
+	regex, err := regexp.Compile(`^name=test level=INFO msg=test func=.+_test.go:\d+:doLog\(\) test=value$`)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	require.Regexp(t, regex, s.Values[0].Message)
+	require.Regexp(t, regex, s.Values[0].message)
 }
 
-// TestFormatter tests:
-// - log message with a different formatter
-func TestFormatter(t *testing.T) {
-	msgs, err := testInternal(formatterTest)
+// TestHandler tests:
+// - log message with a different handler
+func TestHandler(t *testing.T) {
+	msgs, err := testInternal(handlerTest)
 	require.NoError(t, err)
 
 	m := msgs[0]
@@ -273,28 +270,13 @@ func TestFormatter(t *testing.T) {
 	require.Len(t, v, 1, "1 log value expected")
 
 	var data map[string]string
-	err = json.Unmarshal([]byte(v[0].Message), &data)
+	err = json.Unmarshal([]byte(v[0].message), &data)
 	require.NoError(t, err)
 
 	require.Len(t, data, 3)
 	require.Contains(t, data, "level")
 	require.Contains(t, data, "msg")
 	require.Contains(t, data, "time")
-}
-
-// TestRemoveColors tests:
-// - removing colors from the message string
-func TestRemoveColors(t *testing.T) {
-	msgs, err := testInternal(removeColorTest)
-	require.NoError(t, err)
-
-	m := msgs[0]
-	require.Len(t, m.Streams, 1, "one Loki stream expected")
-
-	v := m.Streams[0].Values
-	require.Len(t, v, 1, "1 log value expected")
-
-	require.Equal(t, "level=info msg=test", v[0].Message, "unexpected message")
 }
 
 // TestMinimumLevel tests:
@@ -309,7 +291,7 @@ func TestMinimumLevel(t *testing.T) {
 	v := m.Streams[0].Values
 	require.Len(t, v, 1, "1 log value expected")
 
-	require.Equal(t, "level=warning msg=test", v[0].Message, "unexpected message")
+	require.Equal(t, "level=warning msg=test", v[0].message, "unexpected message")
 }
 
 // TestBatchInterval tests:
@@ -326,7 +308,7 @@ func TestFlushWait(t *testing.T) {
 
 		s := m.Streams[0]
 		require.Lenf(t, s.Values, 1, "one Loki value in message %d expected", i+1)
-		require.Equal(t, s.Values[0].Message, fmt.Sprintf("level=info msg=%d", i+1))
+		require.Equal(t, s.Values[0].message, fmt.Sprintf("level=INFO msg=%d", i+1))
 	}
 }
 
@@ -361,46 +343,106 @@ func TestSynchronous(t *testing.T) {
 
 		s := m.Streams[0]
 		require.Lenf(t, s.Values, 1, "one Loki value in message %d expected", i+1)
-		require.Equal(t, s.Values[0].Message, fmt.Sprintf("level=info msg=%d", i+1))
+		require.Equal(t, s.Values[0].message, fmt.Sprintf("level=INFO msg=%d", i+1))
 	}
 }
+
+var errOutput strings.Builder
 
 // TestErrors tests:
 // - logged errors (error at creating the loki message)
 func TestErrors(t *testing.T) {
-	var out strings.Builder
-	logrus.SetOutput(&out)
+	errOutput.Reset()
 
 	msgs, err := testInternal(errorsTest)
 	require.NoError(t, err)
 	require.Len(t, msgs, 0, "no Loki message expected")
 
-	output := strings.TrimSpace(out.String())
-	require.Equal(t, `level=error msg="Failed to create loki value from entry: failed to create entry"`, output)
-
-	logrus.SetOutput(io.Discard)
+	output := strings.TrimSpace(errOutput.String())
+	require.Equal(t, `level=ERROR msg="Failed to create loki value from entry: failed to create entry"`, output)
 }
 
-type errorFormatter struct{}
+type errorHandler struct{}
 
-func (f *errorFormatter) Format(e *logrus.Entry) ([]byte, error) {
-	return nil, errors.New("failed to create entry")
+// Check if the type satisfies the Handler interface.
+var _ slog.Handler = (*errorHandler)(nil)
+
+// Enabled implements the [slog.Handler.Enabled] function.
+func (h *errorHandler) Enabled(_ context.Context, _ slog.Level) bool {
+	return true
 }
 
-// TestErrors tests:
-// - suppressed errors (error at creating the loki message)
-func TestSuppressErrors(t *testing.T) {
-	var out strings.Builder
-	logrus.SetOutput(&out)
+// Handle implements the [slog.Handler.Handle] function.
+func (h *errorHandler) Handle(_ context.Context, _ slog.Record) error {
+	return errors.New("logging error")
+}
 
-	msgs, err := testInternal(suppressErrorsTest)
+// WithAttrs implements the [slog.Handler.WithAttrs] function.
+func (h *errorHandler) WithAttrs(_ []slog.Attr) slog.Handler {
+	return h
+}
+
+// WithGroup implements the [slog.Handler.WithGroup] function.
+func (h *errorHandler) WithGroup(_ string) slog.Handler {
+	return h
+}
+
+// TestIgnoreErrors tests:
+// - ignore errors (error at creating the loki message)
+func TestIgnoreErrors(t *testing.T) {
+	msgs, err := testInternal(errorsIgnoreTest)
 	require.NoError(t, err)
 	require.Len(t, msgs, 0, "no Loki message expected")
+}
 
-	output := strings.TrimSpace(out.String())
-	require.Empty(t, "", output)
+type lokiMessage struct {
+	Streams []*lokiStreamV `json:"streams"`
+}
 
-	logrus.SetOutput(io.Discard)
+type lokiStreamV struct {
+	Stream map[string]string `json:"stream"`
+	Values []*lokiValue      `json:"values"`
+}
+
+func testInternal(typ TestType) ([]*lokiMessage, error) {
+	var (
+		messages []*lokiMessage
+		err      error
+	)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		m, rerr := readLoki(w, r)
+		if rerr != nil {
+			err = rerr
+		} else {
+			messages = append(messages, m)
+		}
+	}))
+
+	defer server.Close()
+
+	// never add the source for tests
+	options := []Option{WithHandler(func(w io.Writer) slog.Handler {
+		return slog.NewTextHandler(w, &slog.HandlerOptions{
+			Level:     slog.LevelDebug,
+			AddSource: false,
+		})
+	})}
+
+	// add the custom test options
+	options = append(options, getOptions(typ)...)
+
+	h := NewHandler(server.URL, options...)
+	logger := slog.New(h)
+
+	doLog(typ, logger, h)
+	h.Close()
+
+	if err != nil {
+		return nil, err
+	}
+
+	return messages, nil
 }
 
 func getOptions(typ TestType) []Option {
@@ -412,14 +454,20 @@ func getOptions(typ TestType) []Option {
 	case labelTest:
 		return []Option{WithLabel("test", "test")}
 	case labelEnabledTest:
-		all := []Label{FieldsLabel, TimeLabel, LevelLabel, CallerLabel, MessageLabel}
+		all := []Label{LabelAttrs, LabelTime, LabelLevel, LabelCaller, LabelMessage}
 		return []Option{WithName("test"), WithLabelsEnabled(all...)}
-	case formatterTest:
-		return []Option{WithFormatter(&logrus.JSONFormatter{})}
-	case removeColorTest:
-		return []Option{WithRemoveColors(true)}
+	case handlerTest:
+		return []Option{WithHandler(func(w io.Writer) slog.Handler {
+			return slog.NewJSONHandler(w, &slog.HandlerOptions{
+				AddSource: true,
+			})
+		})}
 	case minLevelTest:
-		return []Option{WithLevel(logrus.WarnLevel)}
+		return []Option{WithHandler(func(w io.Writer) slog.Handler {
+			return slog.NewTextHandler(w, &slog.HandlerOptions{
+				Level: slog.LevelWarn,
+			})
+		})}
 	case flushWaitTest, batchIntervalTest:
 		return []Option{WithBatchInterval(1 * time.Second)}
 	case batchSizeTest:
@@ -427,18 +475,29 @@ func getOptions(typ TestType) []Option {
 	case synchronousTest:
 		return []Option{WithSynchronous(true)}
 	case errorsTest:
-		return []Option{WithFormatter(&errorFormatter{})}
-	case suppressErrorsTest:
-		return []Option{WithSuppressErrors(true), WithFormatter(&errorFormatter{})}
+		return []Option{
+			WithHandler(func(_ io.Writer) slog.Handler {
+				return &errorHandler{}
+			}),
+			WithErrorHandler(func(err error) {
+				fmt.Fprintln(&errOutput, err.Error())
+			}),
+		}
+	case errorsIgnoreTest:
+		return []Option{
+			WithHandler(func(_ io.Writer) slog.Handler {
+				return &errorHandler{}
+			}),
+			// no error handler
+		}
 	default:
 		return nil
 	}
 }
 
-func doLog(typ TestType, log *logrus.Logger, hook *Hook) {
+func doLog(typ TestType, log *slog.Logger, hook *Handler) {
 	switch typ {
 	case defaultTest:
-		log.Trace("test")
 		log.Debug("test")
 		log.Info("test")
 		log.Warn("test")
@@ -447,8 +506,8 @@ func doLog(typ TestType, log *logrus.Logger, hook *Hook) {
 		log.Info("test test")
 		log.Info("test=test")
 		log.Info(`"test"`)
-		log.WithField("test", `"test"`).Info("test")
-		log.WithError(errors.New("test")).Error("test")
+		log.Info("test", slog.String("test", `"test"`))
+		log.Error("test", slog.Any("error", errors.New("test")))
 	case flushTest:
 		log.Info("1")
 		log.Info("2")
@@ -457,13 +516,9 @@ func doLog(typ TestType, log *logrus.Logger, hook *Hook) {
 	case nameAttrTest, labelTest:
 		log.Info("test")
 	case labelEnabledTest:
-		log.SetReportCaller(true)
-		log.WithField("test", "value").Info("test")
-	case formatterTest:
+		log.Info("test", slog.String("test", "value"))
+	case handlerTest:
 		log.Info("test")
-	case removeColorTest:
-		colored := fmt.Sprintf("\x1b[%dm%s\x1b[0m", 36, "test") // blue
-		log.Info(colored)
 	case minLevelTest:
 		log.Debug("test")
 		log.Info("test")
@@ -485,49 +540,11 @@ func doLog(typ TestType, log *logrus.Logger, hook *Hook) {
 		log.Info("3")
 	case errorsTest:
 		log.Info("test")
-	case suppressErrorsTest:
+	case errorsIgnoreTest:
 		log.Info("test")
 	default:
 		break
 	}
-}
-
-func testInternal(typ TestType) ([]*lokiMessage, error) {
-	logger := logrus.New()
-	logger.SetOutput(io.Discard)
-	logger.SetLevel(logrus.TraceLevel)
-
-	var (
-		messages  []*lokiMessage
-		serverErr error
-	)
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		m, err := readLoki(w, r)
-		if err != nil {
-			serverErr = err
-		} else {
-			messages = append(messages, m)
-		}
-	}))
-
-	defer server.Close()
-
-	url := server.URL
-	ops := getOptions(typ)
-	hook := NewHook(url, ops...)
-
-	logger.AddHook(hook)
-
-	doLog(typ, logger, hook)
-
-	hook.Close()
-
-	if serverErr != nil {
-		return nil, serverErr
-	}
-
-	return messages, nil
 }
 
 func readLoki(w http.ResponseWriter, r *http.Request) (*lokiMessage, error) {
@@ -556,4 +573,56 @@ func readLoki(w http.ResponseWriter, r *http.Request) (*lokiMessage, error) {
 	w.WriteHeader(204)
 	w.Write([]byte("OK"))
 	return &v, nil
+}
+
+func (v *lokiValue) UnmarshalJSON(data []byte) error {
+	r := bytes.NewReader(data)
+	d := json.NewDecoder(r)
+
+	done := false
+	i := 0
+	arrIdx := 0
+
+	for ; d.More(); i++ {
+		tk, err := d.Token()
+		if err != nil {
+			return err
+		}
+
+		if done {
+			return fmt.Errorf("unexpected token `%v`", tk)
+		}
+
+		switch val := tk.(type) {
+		case json.Delim:
+			switch val {
+			case '[':
+				if i != 0 {
+					return errors.New("unexpected array")
+				}
+			case ']':
+				done = true
+			default:
+				return fmt.Errorf("unexpected delimiter '%c'", val)
+			}
+		case string:
+			switch arrIdx {
+			case 0:
+				ns, err := strconv.ParseInt(val, 10, 64)
+				if err != nil {
+					return fmt.Errorf("parsing date: %v", err)
+				}
+
+				v.time = time.Unix(0, ns)
+			case 1:
+				v.message = val
+			default:
+				return fmt.Errorf("unexpected value at array index %d", arrIdx)
+			}
+
+			arrIdx++
+		}
+	}
+
+	return nil
 }

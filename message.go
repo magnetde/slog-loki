@@ -2,182 +2,175 @@ package loki
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"log/slog"
+	"maps"
+	"runtime"
 	"strconv"
+	"strings"
 	"time"
-
-	"github.com/sirupsen/logrus"
 )
 
 // Label is the enum type to define additional labels to be added to the Loki message.
 type Label uint
 
 const (
-	// FieldsLabel adds all extra fields as labels
-	FieldsLabel Label = iota
+	// LabelAttrs adds all extra attributes as labels
+	LabelAttrs Label = 1 << iota
 
-	// TimeLabel adds the time
-	TimeLabel
+	// LabelTime adds the time
+	LabelTime
 
-	// LevelLabel adds the level
-	LevelLabel
+	// LabelLevel adds the level
+	LabelLevel
 
-	// CallerLabel adds the caller which format "[file]:[line]:[function]"
-	CallerLabel
+	// LabelCaller adds the caller which format "[file]:[line]:[function]"
+	LabelCaller
 
-	// MessageLabel adds the message as an extra label
-	MessageLabel
+	// LabelMessage adds the message as an extra label
+	LabelMessage
 )
 
-type lokiLabels map[string]string
+// LabelAll adds all fields and attributes as labels.
+var LabelAll = []Label{LabelAttrs, LabelTime, LabelLevel, LabelCaller, LabelMessage}
 
-func (l lokiLabels) equals(o lokiLabels) bool {
-	if len(l) != len(o) {
-		return false
-	}
-
-	for k, v := range l {
-		if v2, ok := o[k]; !ok || v != v2 {
-			return false
-		}
-	}
-
-	return true
+type lokiStream struct {
+	Stream map[string]string `json:"stream"`
+	Values []*lokiValue      `json:"values"`
 }
 
-func (h *Hook) lokiLabels(e *logrus.Entry) lokiLabels {
-	l := make(lokiLabels, len(h.labels))
+type lokiValue struct {
+	time    time.Time
+	message string
+}
+
+var _ json.Marshaler = (*lokiValue)(nil)
+
+func (v *lokiValue) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer // TODO: slow
+
+	buf.WriteString(`["`)
+	buf.WriteString(strconv.FormatInt(v.time.UnixNano(), 10))
+	buf.WriteString(`",`)
+	marshalString(&buf, v.message)
+	buf.WriteByte(']')
+
+	return buf.Bytes(), nil
+}
+
+// lokiValue transforms the slog record into a Loki value.
+func (h *Handler) lokiValue(handler slog.Handler, ctx context.Context, r slog.Record) (*lokiValue, error) {
+	if name, ok := h.labels["name"]; ok {
+		r = r.Clone()
+		r.AddAttrs(slog.Any("name", name))
+	}
+
+	msg, err := h.handleMessage(handler, ctx, r)
+	if err != nil {
+		return nil, err
+	}
+
+	v := &lokiValue{
+		time:    r.Time,
+		message: msg,
+	}
+
+	return v, nil
+}
+
+func (h *Handler) handleMessage(handler slog.Handler, ctx context.Context, r slog.Record) (string, error) {
+	h.buflock.Lock() // lock the buffer
+	defer h.buflock.Unlock()
+
+	err := handler.Handle(ctx, r)
+	if err != nil {
+		return "", err
+	}
+
+	// remove trailing new line
+	msg := strings.TrimSuffix(h.strbuf.String(), "\n")
+	h.strbuf.Reset()
+
+	return msg, nil
+}
+
+// lokiLabels returns the list of labels for the slog record.
+func (h *Handler) lokiLabels(labels map[string]string, r *slog.Record) map[string]string {
+	l := make(map[string]string)
 	for k, v := range h.labels {
 		l[k] = fmt.Sprint(v)
 	}
 
 	for _, lbl := range h.labelsEnabled {
 		switch lbl {
-		case FieldsLabel:
-			for k, v := range e.Data {
-				l[k] = fmt.Sprint(v)
+		case LabelAttrs:
+			maps.Copy(l, labels)
+
+			r.Attrs(func(a slog.Attr) bool {
+				addAttr(l, "", a)
+				return true
+			})
+		case LabelTime:
+			l["time"] = formatRFC3339Millis(r.Time)
+		case LabelLevel:
+			l["level"] = r.Level.String()
+		case LabelCaller:
+			if r.PC != 0 {
+				fs := runtime.CallersFrames([]uintptr{r.PC})
+				f, _ := fs.Next()
+				if f.File != "" {
+					function, _ := callerPrettifier(&f)
+					l["func"] = function
+				}
 			}
-		case TimeLabel:
-			l["time"] = e.Time.Format(time.RFC3339Nano)
-		case LevelLabel:
-			l["level"] = e.Level.String()
-		case CallerLabel:
-			if e.HasCaller() {
-				function, _ := callerPrettyfier(e.Caller)
-				l["func"] = function
-			}
-		case MessageLabel:
-			l["message"] = e.Message
+		case LabelMessage:
+			l["message"] = r.Message
 		}
 	}
 
 	return l
 }
 
-type lokiValue struct {
-	Date    time.Time
-	Message string
+// formatRFC3339Millis formats a time as RFC3339 with millisecond precision.
+func formatRFC3339Millis(t time.Time) string {
+	// Format according to time.RFC3339Nano since it is highly optimized,
+	// but truncate it to use millisecond resolution.
+	// Unfortunately, that format trims trailing 0s, so add 1/10 millisecond
+	// to guarantee that there are exactly 4 digits after the period.
+	const prefixLen = len("2006-01-02T15:04:05.000")
+
+	var b []byte
+
+	t = t.Truncate(time.Millisecond).Add(time.Millisecond / 10)
+	b = t.AppendFormat(b, time.RFC3339Nano)
+	b = append(b[:prefixLen], b[prefixLen+1:]...) // drop the 4th digit
+
+	return string(b)
 }
 
-func (v *lokiValue) MarshalJSON() ([]byte, error) {
-	var b bytes.Buffer
-	b.WriteString(`["`)
-	b.WriteString(strconv.FormatInt(v.Date.UnixNano(), 10))
-	b.WriteString(`",`)
+// callerPrettifier formats a func value in format ("file:line:func", "") (empty file value).
+// This kind of creating the caller string is the most efficient way, e.g. compared to Sprintf.
+// - this implementation: 258 ns/op, 67 B/op
+// - Sprintf:             794 ns/op, 112 B/op
+func callerPrettifier(c *runtime.Frame) (string, string) {
+	i := strings.LastIndexByte(c.Function, '.')
 
-	bytes, err := json.Marshal(v.Message)
-	if err != nil {
-		return nil, err
+	var f strings.Builder
+	f.Grow(len(c.File) + (len(c.Function) - i) + 10) // 10 extra needed
+
+	f.WriteString(c.File)
+	f.WriteByte(':')
+	f.WriteString(strconv.Itoa(c.Line))
+	f.WriteByte(':')
+
+	if i >= 0 {
+		f.WriteString(c.Function[i+1:])
+	} else {
+		f.WriteString(c.Function)
 	}
 
-	b.Write(bytes)
-	b.WriteByte(']')
-
-	return b.Bytes(), nil
-}
-
-func (v *lokiValue) UnmarshalJSON(data []byte) error {
-	r := bytes.NewReader(data)
-	d := json.NewDecoder(r)
-
-	done := false
-	i := 0
-	arrIdx := 0
-
-	for ; d.More(); i++ {
-		tk, err := d.Token()
-		if err != nil {
-			return err
-		}
-
-		if done {
-			return fmt.Errorf("unexpected token `%v`", tk)
-		}
-
-		switch val := tk.(type) {
-		case json.Delim:
-			switch val {
-			case '[':
-				if i != 0 {
-					return errors.New("unexpected array")
-				}
-			case ']':
-				done = true
-			default:
-				return fmt.Errorf("unexpected delimiter '%c'", val)
-			}
-		case string:
-			switch arrIdx {
-			case 0:
-				ns, err := strconv.ParseInt(val, 10, 64)
-				if err != nil {
-					return fmt.Errorf("parsing date: %v", err)
-				}
-
-				v.Date = time.Unix(0, ns)
-			case 1:
-				v.Message = val
-			default:
-				return fmt.Errorf("unexpected value at array index %d", arrIdx)
-			}
-
-			arrIdx++
-		}
-	}
-
-	return nil
-}
-
-func (h *Hook) lokiValue(e *logrus.Entry) (*lokiValue, error) {
-	f := h.formatter
-	if f == nil {
-		if e.Logger == nil || e.Logger.Formatter == nil {
-			return nil, errors.New("no formatter set")
-		}
-
-		f = e.Logger.Formatter
-	}
-
-	bytes, err := f.Format(e)
-	if err != nil {
-		return nil, err
-	}
-
-	v := &lokiValue{
-		Date:    e.Time,
-		Message: string(bytes),
-	}
-
-	return v, nil
-}
-
-type lokiStream struct {
-	Stream lokiLabels   `json:"stream"`
-	Values []*lokiValue `json:"values"`
-}
-
-type lokiMessage struct {
-	Streams []*lokiStream `json:"streams"`
+	f.WriteString("()")
+	return f.String(), ""
 }

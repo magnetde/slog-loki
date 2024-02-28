@@ -1,14 +1,15 @@
 package loki
 
 import (
+	"io"
+	"log/slog"
+	"slices"
 	"time"
-
-	"github.com/sirupsen/logrus"
 )
 
 // Option is the parameter type for options when initializing the log hook.
 type Option interface {
-	apply(h *Hook)
+	apply(h *Handler)
 }
 
 // WithName adds the additional label "name" to all log entries sent to loki.
@@ -18,25 +19,21 @@ func WithName(v string) Option {
 
 type nameAttrOption string
 
-func (o nameAttrOption) apply(h *Hook) {
+func (o nameAttrOption) apply(h *Handler) {
 	h.labels["name"] = string(o)
-
-	if f, ok := h.formatter.(*logfmtFormatter); ok {
-		f.name = string(o)
-	}
 }
 
 // WithLabel adds an extra labels to all log entries sent to loki.
-func WithLabel(k string, v interface{}) Option {
+func WithLabel(k string, v any) Option {
 	return labelOption{key: k, value: v}
 }
 
 type labelOption struct {
 	key   string
-	value interface{}
+	value any
 }
 
-func (o labelOption) apply(h *Hook) {
+func (o labelOption) apply(h *Handler) {
 	h.labels[o.key] = o.value
 }
 
@@ -47,45 +44,34 @@ func WithLabelsEnabled(v ...Label) Option {
 
 type labelEnabledOption []Label
 
-func (o labelEnabledOption) apply(h *Hook) {
-	h.labelsEnabled = []Label(o)
-}
+func (o labelEnabledOption) apply(h *Handler) {
+	h.labelsEnabled = append(h.labelsEnabled, o...)
 
-// WithFormatter sets the formatter for the message.
-func WithFormatter(v logrus.Formatter) Option {
-	return formatterOption{f: v}
-}
-
-type formatterOption struct {
-	f logrus.Formatter
-}
-
-func (o formatterOption) apply(h *Hook) {
-	h.formatter = o.f
-}
-
-// WithRemoveColors removes colors from the serialized log entry. This only works with the default formatter.
-func WithRemoveColors(v bool) Option {
-	return removeColorsOption(v)
-}
-
-type removeColorsOption bool
-
-func (o removeColorsOption) apply(h *Hook) {
-	if f, ok := h.formatter.(*logfmtFormatter); ok {
-		f.removeColors = bool(o)
+	if !h.labelAttrs {
+		h.labelAttrs = slices.Contains(o, LabelAttrs)
 	}
 }
 
-// WithLevel ignores all log entries with a severity below the level.
-func WithLevel(v logrus.Level) Option {
-	return levelOption(v)
+// WithHandler sets the handler that formats the log entries.
+func WithHandler(h func(w io.Writer) slog.Handler) Option {
+	return handlerOption(h)
 }
 
-type levelOption logrus.Level
+type handlerOption func(w io.Writer) slog.Handler
 
-func (o levelOption) apply(h *Hook) {
-	h.level = logrus.Level(o)
+func (o handlerOption) apply(h *Handler) {
+	h.handler = o(&h.strbuf)
+}
+
+// WithSynchronous sets the synchronous or asynchronous mode.
+func WithSynchronous(v bool) Option {
+	return synchronousOption(v)
+}
+
+type synchronousOption bool
+
+func (o synchronousOption) apply(h *Handler) {
+	h.synchronous = bool(o)
 }
 
 // WithBatchInterval sets the interval at which collected logs are sent.
@@ -95,7 +81,7 @@ func WithBatchInterval(v time.Duration) Option {
 
 type batchIntervalOption time.Duration
 
-func (o batchIntervalOption) apply(h *Hook) {
+func (o batchIntervalOption) apply(h *Handler) {
 	h.batchInterval = time.Duration(o)
 }
 
@@ -106,28 +92,17 @@ func WithBatchSize(v int) Option {
 
 type batchSizeOption int
 
-func (o batchSizeOption) apply(h *Hook) {
+func (o batchSizeOption) apply(h *Handler) {
 	h.batchSize = int(o)
 }
 
-// WithSynchronous sets the synchronous or asynchronous mode.
-func WithSynchronous(v bool) Option {
-	return synchronousOption(v)
+// WithErrorHandler handles errors in asynchronous mode.
+func WithErrorHandler(v func(err error)) Option {
+	return errorHandlerOption(v)
 }
 
-type synchronousOption bool
+type errorHandlerOption func(err error)
 
-func (o synchronousOption) apply(h *Hook) {
-	h.synchronous = bool(o)
-}
-
-// WithSuppressErrors ignores errors in asynchronous mode.
-func WithSuppressErrors(v bool) Option {
-	return suppressErrorsOption(v)
-}
-
-type suppressErrorsOption bool
-
-func (o suppressErrorsOption) apply(h *Hook) {
-	h.suppressErrors = bool(o)
+func (o errorHandlerOption) apply(h *Handler) {
+	h.errHandler = o
 }
