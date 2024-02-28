@@ -1,7 +1,7 @@
-image: golang:1.16
+image: golang:1.22
 
 variables:
-  REPO_NAME: github.com/fabian/loki
+  REPO_NAME: github.com/fabian/slog-loki
   GOPATH: $CI_PROJECT_DIR/go
 
 before_script:
@@ -34,4 +34,4 @@ test:
   artifacts:
     reports:
       cobertura: cobertura-coverage.xml
-    expire_in: 90d
+    expire_in: 30d
