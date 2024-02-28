@@ -9,7 +9,7 @@ By default, logs are sent asynchronously in batches and are formatted using `slo
 ## Installation
 
 ```bash
-go get github.com/magnetde/loki
+go get github.com/magnetde/slog-loki
 ```
 
 ## Example Usage in Go
@@ -19,7 +19,7 @@ package main
 
 import (
 	"log/slog"
-	"github.com/magnetde/loki"
+	loki "github.com/magnetde/slog-loki"
 )
 
 func main() {
