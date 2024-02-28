@@ -510,9 +510,8 @@ func testInternal(typ TestType) ([]*lokiMessage, error) {
 
 	// never add the source for tests
 	options := []Option{WithHandler(func(w io.Writer) slog.Handler {
-		return slog.NewTextHandler(w, &slog.HandlerOptions{
-			Level:     slog.LevelDebug,
-			AddSource: false,
+		return NewLogfmtHandler(w, &LogfmtOptions{
+			Level: slog.LevelDebug,
 		})
 	})}
 
@@ -549,7 +548,7 @@ func getOptions(typ TestType) []Option {
 	case labelTest:
 		return []Option{WithLabel("test", "test")}
 	case labelEnabledTest:
-		all := []Label{LabelAttrs, LabelTime, LabelLevel, LabelCaller, LabelMessage}
+		all := []Label{LabelAttrs, LabelTime, LabelLevel, LabelSource, LabelMessage}
 		return []Option{WithName("test"), WithLabelsEnabled(all...)}
 	case handlerTest:
 		return []Option{WithHandler(func(w io.Writer) slog.Handler {
@@ -557,7 +556,7 @@ func getOptions(typ TestType) []Option {
 		})}
 	case minLevelTest:
 		return []Option{WithHandler(func(w io.Writer) slog.Handler {
-			return slog.NewTextHandler(w, &slog.HandlerOptions{
+			return NewLogfmtHandler(w, &LogfmtOptions{
 				Level: slog.LevelWarn,
 			})
 		})}
