@@ -17,7 +17,7 @@ type Label uint
 
 const (
 	// LabelAttrs adds all extra attributes as labels
-	LabelAttrs Label = 1 << iota
+	LabelAttrs Label = iota
 
 	// LabelTime adds the time
 	LabelTime
