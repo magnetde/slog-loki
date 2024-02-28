@@ -1,26 +1,21 @@
 package loki
 
 import (
+	"fmt"
 	"io"
 	"log/slog"
 	"slices"
 	"time"
 )
 
-// Option is the parameter type for options when initializing the log hook.
+// Option is the parameter type for options when initializing the log handler.
 type Option interface {
 	apply(h *Handler)
 }
 
 // WithName adds the additional label "name" to all log entries sent to loki.
 func WithName(v string) Option {
-	return nameAttrOption(v)
-}
-
-type nameAttrOption string
-
-func (o nameAttrOption) apply(h *Handler) {
-	h.labels["name"] = string(o)
+	return labelOption{key: "name", value: v}
 }
 
 // WithLabel adds an extra labels to all log entries sent to loki.
@@ -34,7 +29,11 @@ type labelOption struct {
 }
 
 func (o labelOption) apply(h *Handler) {
-	h.labels[o.key] = o.value
+	if h.labels == nil {
+		h.labels = make(map[string]string)
+	}
+
+	h.labels[o.key] = fmt.Sprint(o.value)
 }
 
 // WithLabelsEnabled determines the attributes to be added as labels.
@@ -96,7 +95,7 @@ func (o batchSizeOption) apply(h *Handler) {
 	h.batchSize = int(o)
 }
 
-// WithErrorHandler handles errors in asynchronous mode.
+// WithErrorHandler handles request errors in asynchronous mode.
 func WithErrorHandler(v func(err error)) Option {
 	return errorHandlerOption(v)
 }

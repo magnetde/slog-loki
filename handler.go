@@ -26,14 +26,15 @@ type Handler struct {
 	url string
 
 	// label settings
-	labels        map[string]any
+	labels        map[string]string
 	labelsEnabled []Label
 	labelAttrs    bool // if labelsEnabled contains LabelAttr; for performance
 
 	// log handling
-	buflock sync.Mutex
-	strbuf  strings.Builder
-	handler slog.Handler
+	buflock        sync.Mutex
+	strbuf         strings.Builder
+	handler        slog.Handler
+	defaultHandler bool
 
 	// settings for sync / async behavior
 	synchronous   bool
@@ -55,18 +56,19 @@ type Handler struct {
 	bufStreamSize int
 }
 
-// lokiPair stores a map of Loki labels and a loki value.
+// lokiRecord stores a map of Loki labels and a loki value.
 // It is used for sending Loki log messages to the background worker.
 type lokiRecord struct {
 	value  *lokiValue
 	labels map[string]string
 }
 
+// subhandler is used as a slog handler for loggers created with "WithAttrs" and "WithGroup".
 type subhandler struct {
 	root    *Handler
 	handler slog.Handler
 	prefix  string
-	labels  map[string]string
+	attrs   map[string]string
 }
 
 // Test if the type satisfies the slog.Handler interface.
@@ -89,7 +91,7 @@ func NewHandler(url string, options ...Option) *Handler {
 		url: url,
 
 		// default values
-		labels:        make(map[string]any),
+		labels:        nil,
 		labelsEnabled: nil,
 		labelAttrs:    false,
 		batchInterval: 15 * time.Second,
@@ -107,6 +109,8 @@ func NewHandler(url string, options ...Option) *Handler {
 			Level:     slog.LevelDebug,
 			AddSource: true,
 		})
+
+		h.defaultHandler = true
 	}
 
 	if !h.synchronous {
@@ -127,7 +131,14 @@ func (h *Handler) Enabled(ctx context.Context, lvl slog.Level) bool {
 
 // Handle implements the [slog.Handler.Handle] function.
 func (h *Handler) Handle(ctx context.Context, r slog.Record) error {
-	return h.handle(h.handler, nil, ctx, r)
+	v, err := h.lokiValue(ctx, h.handler, r)
+	if err != nil {
+		return err
+	}
+
+	l := h.lokiLabels("", nil, &r)
+
+	return h.handle(v, l)
 }
 
 // WithAttrs implements the [slog.Handler.WithAttrs] function.
@@ -145,17 +156,18 @@ func (h *Handler) WithAttrs(attrs []slog.Attr) slog.Handler {
 		root:    h,
 		handler: h.handler.WithAttrs(attrs),
 		prefix:  "",
-		labels:  l,
+		attrs:   l,
 	}
 }
 
+// addAttr adds the attribute `a` to map `labels` with prefix `prefix`.
 func addAttr(labels map[string]string, prefix string, a slog.Attr) {
 	k := a.Key
 	v := a.Value
 
 	switch v.Kind() {
 	case slog.KindGroup:
-		prefix := k + "."
+		prefix := prefix + k + "."
 
 		for _, a := range v.Group() {
 			addAttr(labels, prefix, a)
@@ -174,25 +186,37 @@ func (h *Handler) WithGroup(name string) slog.Handler {
 		root:    h,
 		handler: h.handler.WithGroup(name),
 		prefix:  name + ".",
-		labels:  nil,
+		attrs:   nil,
 	}
+}
+
+// Enabled implements the [slog.Handler.Enabled] function.
+func (h *subhandler) Enabled(ctx context.Context, lvl slog.Level) bool {
+	return h.handler.Enabled(ctx, lvl)
 }
 
 // Handle implements the [slog.Handler.Handle] function.
 func (h *subhandler) Handle(ctx context.Context, r slog.Record) error {
-	return h.root.handle(h.handler, h.labels, ctx, r)
+	v, err := h.root.lokiValue(ctx, h.handler, r)
+	if err != nil {
+		return err
+	}
+
+	l := h.root.lokiLabels(h.prefix, h.attrs, &r)
+
+	return h.root.handle(v, l)
 }
 
 // WithAttrs implements the [slog.Handler.WithAttrs] function.
 func (h *subhandler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	l := maps.Clone(h.labels)
+	l := maps.Clone(h.attrs)
 	if h.root.labelAttrs && len(attrs) > 0 {
 		if l == nil {
 			l = make(map[string]string, len(attrs))
 		}
 
 		for _, a := range attrs {
-			addAttr(l, "", a)
+			addAttr(l, h.prefix, a)
 		}
 	}
 
@@ -200,7 +224,7 @@ func (h *subhandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 		root:    h.root,
 		handler: h.handler.WithAttrs(attrs),
 		prefix:  h.prefix,
-		labels:  l,
+		attrs:   l,
 	}
 }
 
@@ -210,37 +234,33 @@ func (h *subhandler) WithGroup(name string) slog.Handler {
 		root:    h.root,
 		handler: h.handler.WithGroup(name),
 		prefix:  h.prefix + name + ".",
-		labels:  maps.Clone(h.labels),
+		attrs:   h.attrs, // reuse because they will not get modified
 	}
 }
 
-func (h *Handler) handle(handler slog.Handler, labels map[string]string, ctx context.Context, r slog.Record) error {
-	v, err := h.lokiValue(handler, ctx, r)
-	if err != nil {
-		return err
-	}
-
-	l := h.lokiLabels(labels, &r)
-
+// handle is the internal handler function.
+// It handles a Loki value with a map of labels.
+func (h *Handler) handle(value *lokiValue, labels map[string]string) error {
 	if h.synchronous {
 		s := []*lokiStream{{
-			Stream: l,
-			Values: []*lokiValue{v},
+			Stream: labels,
+			Values: []*lokiValue{value},
 		}}
+
 		return h.send(s)
 	}
 
 	h.wgBuf.Add(1)
 	h.buf <- lokiRecord{
-		value:  v,
-		labels: l,
+		value:  value,
+		labels: labels,
 	}
 
 	return nil
 }
 
 // Flush waits for the log queue to be empty.
-// This func is meant to be used when the hook was created as asynchronous.
+// This function is meant to be used when the handler was created as asynchronous.
 func (h *Handler) Flush() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -251,7 +271,7 @@ func (h *Handler) Flush() {
 }
 
 // Close waits for the log queue to be empty and then stops the background worker.
-// This func is meant to be used when the hook was created as asynchronous.
+// This func is meant to be used when the handler was created as asynchronous.
 func (h *Handler) Close() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -263,6 +283,8 @@ func (h *Handler) Close() {
 	}
 }
 
+// doFlush flushes the buffer.
+// Should only be called when the handler is locked.
 func (h *Handler) doFlush() {
 	h.wgBuf.Wait()
 
@@ -281,7 +303,7 @@ loop:
 		case p := <-h.buf:
 			h.wgBuf.Done()
 
-			sent := h.bufEntry(p.value, p.labels)
+			sent := h.bufValue(p.value, p.labels)
 
 			if sent {
 				wait.Reset(h.batchInterval)
@@ -307,22 +329,23 @@ loop:
 	}
 }
 
-func (h *Handler) bufEntry(v *lokiValue, l map[string]string) bool {
+// bufValue adds a new loki value to the buffer.
+func (h *Handler) bufValue(value *lokiValue, labels map[string]string) bool {
 	sent := false
 
 	// check if there is already a stream with matching labels
 	i := slices.IndexFunc(h.bufStream, func(s *lokiStream) bool {
-		return maps.Equal(s.Stream, l)
+		return maps.Equal(s.Stream, labels)
 	})
 
-	if i >= 0 { // stream found
+	if i >= 0 { // stream found; append to the found stream
 		s := h.bufStream[i]
 
-		s.Values = append(s.Values, v)
-	} else {
+		s.Values = append(s.Values, value)
+	} else { // no stream found; add a new stream
 		s := &lokiStream{
-			Stream: l,
-			Values: []*lokiValue{v},
+			Stream: labels,
+			Values: []*lokiValue{value},
 		}
 
 		h.bufStream = append(h.bufStream, s)
@@ -389,29 +412,30 @@ func (h *Handler) send(stream []*lokiStream) error {
 	return errors.New(errstr)
 }
 
-func marshalStream(buf *bytes.Buffer, stream []*lokiStream) error {
-	buf.WriteString(`{"streams":`)
+// marshalStream returns the JSON encoding of the current stream.
+func marshalStream(b *bytes.Buffer, stream []*lokiStream) error {
+	b.WriteString(`{"streams":`)
 
 	data, err := json.Marshal(stream)
 	if err != nil {
 		return err
 	}
 
-	buf.Write(data)
-	buf.WriteByte('}')
+	b.Write(data)
+	b.WriteByte('}')
 
 	return nil
 }
 
 // marshalString marshals the string into the buffer.
-func marshalString(buf *bytes.Buffer, s string) {
+func marshalString(b *bytes.Buffer, s string) {
 	if needsMarshalling(s) {
 		key, _ := json.Marshal(s)
-		buf.Write(key)
+		b.Write(key)
 	} else {
-		buf.WriteByte('"')
-		buf.WriteString(s)
-		buf.WriteByte('"')
+		b.WriteByte('"')
+		b.WriteString(s)
+		b.WriteByte('"')
 	}
 }
 
@@ -423,9 +447,4 @@ func needsMarshalling(s string) bool {
 		}
 	}
 	return false
-}
-
-// Enabled implements the [slog.Handler.Enabled] function.
-func (h *subhandler) Enabled(ctx context.Context, lvl slog.Level) bool {
-	return h.handler.Enabled(ctx, lvl)
 }

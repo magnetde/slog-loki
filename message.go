@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"maps"
 	"runtime"
@@ -36,20 +35,23 @@ const (
 // LabelAll adds all fields and attributes as labels.
 var LabelAll = []Label{LabelAttrs, LabelTime, LabelLevel, LabelCaller, LabelMessage}
 
+// Type representing a single Loki stream element.
 type lokiStream struct {
 	Stream map[string]string `json:"stream"`
 	Values []*lokiValue      `json:"values"`
 }
 
+// Type representing a Loki value.
 type lokiValue struct {
 	time    time.Time
 	message string
 }
 
+// Check if the type satisfies the [json.Marshaler] interface.
 var _ json.Marshaler = (*lokiValue)(nil)
 
 func (v *lokiValue) MarshalJSON() ([]byte, error) {
-	var buf bytes.Buffer // TODO: slow
+	var buf bytes.Buffer
 
 	buf.WriteString(`["`)
 	buf.WriteString(strconv.FormatInt(v.time.UnixNano(), 10))
@@ -61,13 +63,15 @@ func (v *lokiValue) MarshalJSON() ([]byte, error) {
 }
 
 // lokiValue transforms the slog record into a Loki value.
-func (h *Handler) lokiValue(handler slog.Handler, ctx context.Context, r slog.Record) (*lokiValue, error) {
-	if name, ok := h.labels["name"]; ok {
-		r = r.Clone()
-		r.AddAttrs(slog.Any("name", name))
+func (h *Handler) lokiValue(ctx context.Context, handler slog.Handler, r slog.Record) (*lokiValue, error) {
+	if h.defaultHandler {
+		if name, ok := h.labels["name"]; ok {
+			r = r.Clone()
+			r.AddAttrs(slog.Any("name", name))
+		}
 	}
 
-	msg, err := h.handleMessage(handler, ctx, r)
+	msg, err := h.handleMessage(ctx, handler, r)
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +84,7 @@ func (h *Handler) lokiValue(handler slog.Handler, ctx context.Context, r slog.Re
 	return v, nil
 }
 
-func (h *Handler) handleMessage(handler slog.Handler, ctx context.Context, r slog.Record) (string, error) {
+func (h *Handler) handleMessage(ctx context.Context, handler slog.Handler, r slog.Record) (string, error) {
 	h.buflock.Lock() // lock the buffer
 	defer h.buflock.Unlock()
 
@@ -97,19 +101,17 @@ func (h *Handler) handleMessage(handler slog.Handler, ctx context.Context, r slo
 }
 
 // lokiLabels returns the list of labels for the slog record.
-func (h *Handler) lokiLabels(labels map[string]string, r *slog.Record) map[string]string {
+func (h *Handler) lokiLabels(prefix string, attrs map[string]string, r *slog.Record) map[string]string {
 	l := make(map[string]string)
-	for k, v := range h.labels {
-		l[k] = fmt.Sprint(v)
-	}
+	maps.Copy(l, h.labels)
 
 	for _, lbl := range h.labelsEnabled {
 		switch lbl {
 		case LabelAttrs:
-			maps.Copy(l, labels)
+			maps.Copy(l, attrs)
 
 			r.Attrs(func(a slog.Attr) bool {
-				addAttr(l, "", a)
+				addAttr(l, prefix, a)
 				return true
 			})
 		case LabelTime:
@@ -126,7 +128,7 @@ func (h *Handler) lokiLabels(labels map[string]string, r *slog.Record) map[strin
 				}
 			}
 		case LabelMessage:
-			l["message"] = r.Message
+			l["msg"] = r.Message
 		}
 	}
 
