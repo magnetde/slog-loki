@@ -1,4 +1,19 @@
-image: golang:1.16
+image: golang:1.22
+
+variables:
+  REPO_NAME: github.com/fabian/slog-loki
+  GOPATH: $CI_PROJECT_DIR/go
+
+before_script:
+  - export PATH=$(go env GOPATH)/bin:$PATH
+  - mkdir -p $GOPATH/src/$(dirname $REPO_NAME)
+  - ln -svf $CI_PROJECT_DIR $GOPATH/src/$REPO_NAME
+  - cd $GOPATH/src/$REPO_NAME
+
+cache:
+  key: ${CI_COMMIT_REF_SLUG}
+  paths:
+    - go/pkg/mod/
 
 stages:
   - build
@@ -12,10 +27,12 @@ compile:
 test:
   stage: test
   script:
-      # Test for coverage: total:\s+\(statements\)\s+\d+.\d+%
     - go get github.com/boumenot/gocover-cobertura
-    - go test -cover -coverprofile=coverage.txt
-    - gocover-cobertura < coverage.txt > cobertura-coverage.xml
+    - go test -cover -covermode count -coverprofile=coverage.txt ./...
+    - go run github.com/boumenot/gocover-cobertura < coverage.txt > coverage.xml
   artifacts:
     reports:
-      cobertura: cobertura-coverage.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage.xml
+    expire_in: 30d
