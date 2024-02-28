@@ -28,7 +28,7 @@ test:
   stage: test
   script:
     - go get github.com/boumenot/gocover-cobertura
-    - go test -cover -covermode count -coverprofile=coverage.txt ./internal/...
+    - go test -cover -covermode count -coverprofile=coverage.txt ./...
     - go run github.com/boumenot/gocover-cobertura < coverage.txt > coverage.xml
   artifacts:
     reports:
