@@ -1,4 +1,4 @@
-module github.com/magnetde/loki
+module github.com/magnetde/slog-loki
 
 go 1.21
 
