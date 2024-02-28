@@ -354,11 +354,11 @@ func TestLabelsEnabled(t *testing.T) {
 
 		switch i {
 		case 0:
-			requireMessage(t, "level=INFO msg=test name=test", msg)
+			requireMessage(t, "level=INFO msg=test", msg)
 		case 1:
-			requireMessage(t, "level=INFO msg=test test=value name=test", msg)
+			requireMessage(t, "level=INFO msg=test test=value", msg)
 		case 2:
-			requireMessage(t, "level=INFO msg=test test=value group.test1=value1 group.test2=value2 name=test", msg)
+			requireMessage(t, "level=INFO msg=test test=value group.test1=value1 group.test2=value2", msg)
 		}
 	}
 }
