@@ -105,11 +105,7 @@ func NewHandler(url string, options ...Option) *Handler {
 	}
 
 	if h.handler == nil {
-		h.handler = slog.NewTextHandler(&h.strbuf, &slog.HandlerOptions{
-			Level:     slog.LevelDebug,
-			AddSource: true,
-		})
-
+		h.handler = NewLogfmtHandler(&h.strbuf, nil)
 		h.defaultHandler = true
 	}
 
@@ -146,10 +142,7 @@ func (h *Handler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	var l map[string]string
 	if h.labelAttrs && len(attrs) > 0 {
 		l = make(map[string]string, len(attrs))
-
-		for _, a := range attrs {
-			addAttr(l, "", a)
-		}
+		addAttrs(l, "", attrs...)
 	}
 
 	return &subhandler{
@@ -160,8 +153,20 @@ func (h *Handler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	}
 }
 
-// addAttr adds the attribute `a` to map `labels` with prefix `prefix`.
-func addAttr(labels map[string]string, prefix string, a slog.Attr) {
+// addAttrs adds the attributes `a` to map `labels` with prefix `prefix`.
+// All attributes are unpacked and converted to key value pairs of type string.
+func addAttrs(labels map[string]string, prefix string, a ...slog.Attr) {
+	for _, a := range a {
+		unpackAttr(prefix, a, func(k, v string) {
+			labels[k] = v
+		})
+	}
+}
+
+// unpackAttr unpacks an attribute by converting it into a key value pair of type string.
+// Groups are unpacked into a list of multiple attributes.
+// The unpacked attributes are returned via the delivery function.
+func unpackAttr(prefix string, a slog.Attr, deliver func(k, v string)) {
 	k := a.Key
 	v := a.Value
 
@@ -170,13 +175,13 @@ func addAttr(labels map[string]string, prefix string, a slog.Attr) {
 		prefix := prefix + k + "."
 
 		for _, a := range v.Group() {
-			addAttr(labels, prefix, a)
+			unpackAttr(prefix, a, deliver)
 		}
 	case slog.KindLogValuer:
 		v = v.LogValuer().LogValue()
 		fallthrough
 	default:
-		labels[prefix+k] = v.String()
+		deliver(prefix+k, v.String())
 	}
 }
 
@@ -215,9 +220,7 @@ func (h *subhandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 			l = make(map[string]string, len(attrs))
 		}
 
-		for _, a := range attrs {
-			addAttr(l, h.prefix, a)
-		}
+		addAttrs(l, h.prefix, attrs...)
 	}
 
 	return &subhandler{

@@ -111,7 +111,7 @@ func (h *Handler) lokiLabels(prefix string, attrs map[string]string, r *slog.Rec
 			maps.Copy(l, attrs)
 
 			r.Attrs(func(a slog.Attr) bool {
-				addAttr(l, prefix, a)
+				addAttrs(l, prefix, a)
 				return true
 			})
 		case LabelTime:
