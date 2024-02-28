@@ -30,7 +30,6 @@ issues:
   exclude-use-default: false
   exclude:
     - should have a package comment
-    - redefinition of the built-in function close
 
 service:
   golangci-lint-version: 1.20.0 # use the fixed version to not introduce new linters unexpectedly
