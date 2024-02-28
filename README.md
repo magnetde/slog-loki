@@ -57,7 +57,7 @@ The format depends on the handler set with `WithHandler`.
   - `LabelTime`: Adds the time as a label.
   - `LabelLevel`: Adds the log level as a label.
   - `LabelMessage`: Adds the message as a label.
-  - `LabelCaller`: Adds the caller with format `"[file]:[line]:[function]"`.
+  - `LabelSource`: Adds the source with format `"[file]:[line]:[function]"`.
   - `LabelAttrs`: Adds all extra attributes as labels.
   - `LabelAll`: Adds all fields and attributes as labels.
 - `WithHandler(func(w io.Writer) slog.Handler)`:  

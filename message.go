@@ -25,15 +25,15 @@ const (
 	// LabelLevel adds the level
 	LabelLevel
 
-	// LabelCaller adds the caller which format "[file]:[line]:[function]"
-	LabelCaller
+	// LabelSource adds the source which format "[file]:[line]:[function]"
+	LabelSource
 
 	// LabelMessage adds the message as an extra label
 	LabelMessage
 )
 
 // LabelAll adds all fields and attributes as labels.
-var LabelAll = []Label{LabelAttrs, LabelTime, LabelLevel, LabelCaller, LabelMessage}
+var LabelAll = []Label{LabelAttrs, LabelTime, LabelLevel, LabelSource, LabelMessage}
 
 // Type representing a single Loki stream element.
 type lokiStream struct {
@@ -118,7 +118,7 @@ func (h *Handler) lokiLabels(prefix string, attrs map[string]string, r *slog.Rec
 			l["time"] = formatRFC3339Millis(r.Time)
 		case LabelLevel:
 			l["level"] = r.Level.String()
-		case LabelCaller:
+		case LabelSource:
 			if r.PC != 0 {
 				fs := runtime.CallersFrames([]uintptr{r.PC})
 				f, _ := fs.Next()

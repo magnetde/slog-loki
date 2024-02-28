@@ -549,7 +549,7 @@ func getOptions(typ TestType) []Option {
 	case labelTest:
 		return []Option{WithLabel("test", "test")}
 	case labelEnabledTest:
-		all := []Label{LabelAttrs, LabelTime, LabelLevel, LabelCaller, LabelMessage}
+		all := []Label{LabelAttrs, LabelTime, LabelLevel, LabelSource, LabelMessage}
 		return []Option{WithName("test"), WithLabelsEnabled(all...)}
 	case handlerTest:
 		return []Option{WithHandler(func(w io.Writer) slog.Handler {
