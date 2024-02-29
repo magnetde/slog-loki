@@ -329,12 +329,11 @@ func TestLabelsEnabled(t *testing.T) {
 				require.Equal(t, v, slog.LevelInfo.String())
 			case "func":
 				parts := strings.Split(v, ":")
-				require.Len(t, parts, 3, "malformed func value")
+				require.Len(t, parts, 2, "malformed func value")
 				require.Truef(t, strings.HasSuffix(parts[0], "_test.go"), `file name "%s" should have suffix "_test.go"`)
 
 				_, err := strconv.Atoi(parts[1])
 				require.NoError(t, err)
-				require.Equal(t, parts[2], "doLog()")
 			case "msg":
 				require.Equal(t, v, "test")
 			case "group.test1":
@@ -674,10 +673,6 @@ func readLoki(w http.ResponseWriter, r *http.Request) (*lokiMessage, error) {
 		http.Error(w, err.Error(), 500)
 		return nil, err
 	}
-
-	var bb bytes.Buffer
-	json.Indent(&bb, body, "", "  ")
-	// fmt.Println(bb.String())
 
 	var v lokiMessage
 	err = json.Unmarshal(body, &v)

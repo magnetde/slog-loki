@@ -81,7 +81,7 @@ func (h *LogfmtHandler) Handle(_ context.Context, r slog.Record) error {
 		fs := runtime.CallersFrames([]uintptr{r.PC})
 		f, _ := fs.Next()
 		if f.File != "" {
-			function, _ := callerPrettifier(&f)
+			function := callerPrettifier(&f)
 			h.appendKeyValue(&b, slog.SourceKey, function)
 		}
 	}

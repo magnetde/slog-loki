@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"maps"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -123,8 +124,7 @@ func (h *Handler) lokiLabels(prefix string, attrs map[string]string, r *slog.Rec
 				fs := runtime.CallersFrames([]uintptr{r.PC})
 				f, _ := fs.Next()
 				if f.File != "" {
-					function, _ := callerPrettifier(&f)
-					l["func"] = function
+					l["func"] = callerPrettifier(&f)
 				}
 			}
 		case LabelMessage:
@@ -152,27 +152,20 @@ func formatRFC3339Millis(t time.Time) string {
 	return string(b)
 }
 
-// callerPrettifier formats a func value in format ("file:line:func", "") (empty file value).
+// callerPrettifier formats a func value in format "dir/file:line".
 // This kind of creating the caller string is the most efficient way, e.g. compared to Sprintf.
 // - this implementation: 258 ns/op, 67 B/op
 // - Sprintf:             794 ns/op, 112 B/op
-func callerPrettifier(c *runtime.Frame) (string, string) {
-	i := strings.LastIndexByte(c.Function, '.')
+func callerPrettifier(c *runtime.Frame) string {
+	dir, file := filepath.Split(c.File)
+	file = filepath.Join(filepath.Base(dir), file)
 
 	var f strings.Builder
-	f.Grow(len(c.File) + (len(c.Function) - i) + 10) // 10 extra needed
+	f.Grow(len(file) + 10) // 10 extra needed
 
-	f.WriteString(c.File)
+	f.WriteString(file)
 	f.WriteByte(':')
 	f.WriteString(strconv.Itoa(c.Line))
-	f.WriteByte(':')
 
-	if i >= 0 {
-		f.WriteString(c.Function[i+1:])
-	} else {
-		f.WriteString(c.Function)
-	}
-
-	f.WriteString("()")
-	return f.String(), ""
+	return f.String()
 }
