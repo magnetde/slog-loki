@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"maps"
 	"net/http"
@@ -44,6 +43,7 @@ type Handler struct {
 
 	// mechanics for async mode
 	mu      sync.Mutex
+	closed  bool
 	flush   chan struct{}
 	buf     chan lokiRecord
 	wgBuf   sync.WaitGroup
@@ -250,6 +250,13 @@ func (h *Handler) handle(value *lokiValue, labels map[string]string) error {
 		return h.send(s)
 	}
 
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if h.closed {
+		return errors.New("handler closed")
+	}
+
 	h.wgBuf.Add(1)
 	h.buf <- lokiRecord{
 		value:  value,
@@ -262,25 +269,34 @@ func (h *Handler) handle(value *lokiValue, labels map[string]string) error {
 // Flush waits for the log queue to be empty.
 // This function is meant to be used when the handler was created as asynchronous.
 func (h *Handler) Flush() {
+	if h.synchronous {
+		return
+	}
+
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	if !h.synchronous {
-		h.doFlush()
+	if h.closed {
+		return
 	}
+
+	h.doFlush()
 }
 
 // Close waits for the log queue to be empty and then stops the background worker.
 // This func is meant to be used when the handler was created as asynchronous.
 func (h *Handler) Close() {
+	if h.synchronous {
+		return
+	}
+
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	if !h.synchronous {
-		h.doFlush()
-		close(h.flush)
-		close(h.buf)
-	}
+	h.doFlush()
+	close(h.flush)
+	close(h.buf)
+	h.closed = true
 }
 
 // doFlush flushes the buffer.
@@ -301,9 +317,8 @@ loop:
 	for {
 		select {
 		case p := <-h.buf:
-			h.wgBuf.Done()
-
 			sent := h.bufValue(p.value, p.labels)
+			h.wgBuf.Done()
 
 			if sent {
 				wait.Reset(h.batchInterval)
@@ -331,8 +346,6 @@ loop:
 
 // bufValue adds a new loki value to the buffer.
 func (h *Handler) bufValue(value *lokiValue, labels map[string]string) bool {
-	sent := false
-
 	// check if there is already a stream with matching labels
 	i := slices.IndexFunc(h.bufStream, func(s *lokiStream) bool {
 		return maps.Equal(s.Stream, labels)
@@ -354,10 +367,10 @@ func (h *Handler) bufValue(value *lokiValue, labels map[string]string) bool {
 	h.bufStreamSize++
 
 	if h.bufStreamSize >= h.batchSize {
-		sent = h.sendBuffer()
+		return h.sendBuffer()
 	}
 
-	return sent
+	return false
 }
 
 // sendBuffer sends the Loki message and then logs errors to the console.
@@ -386,41 +399,25 @@ func (h *Handler) send(stream []*lokiStream) error {
 	if err != nil {
 		return err
 	}
+
 	defer res.Body.Close()
 
 	if res.StatusCode == 204 {
 		return nil
 	}
 
-	errstr := fmt.Sprintf("unexpected HTTP status code %d", res.StatusCode)
-
-	if res.ContentLength > 0 {
-		errstr += ", response: "
-
-		if res.ContentLength < 1024 {
-			body, err := io.ReadAll(res.Body)
-			if err != nil {
-				return err
-			}
-
-			errstr += string(body)
-		} else {
-			errstr += fmt.Sprintf("%d bytes", res.ContentLength)
-		}
-	}
-
-	return errors.New(errstr)
+	return fmt.Errorf("unexpected HTTP status code %d", res.StatusCode)
 }
 
-// marshalStream returns the JSON encoding of the current stream.
+// marshalStream writes the JSON encoding of the current stream.
 func marshalStream(b *bytes.Buffer, stream []*lokiStream) error {
-	b.WriteString(`{"streams":`)
-
 	data, err := json.Marshal(stream)
 	if err != nil {
 		return err
 	}
 
+	b.Grow(len(data) + 12)
+	b.WriteString(`{"streams":`)
 	b.Write(data)
 	b.WriteByte('}')
 

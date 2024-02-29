@@ -18,50 +18,53 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type TestType uint
+type testType uint
 
 const (
 	// see TestLokiHandler
-	defaultTest TestType = iota
+	testDefault testType = iota
 
 	// see TestAttrAndGroup
-	attrAndGroupTest
+	testAttrAndGroup
 
 	// see TestAttrAndGroupLabels
-	attrAndGroupLabelsTest
+	testAttrAndGroupLabels
 
 	// see TestFormat
-	formatTest
+	testFormat
 
 	// see TestFlush
-	flushTest
+	testFlush
 
 	// see TestNameAttribute
-	nameAttrTest
+	testNameAttr
 
 	// see TestLabel
-	labelTest
+	testLabel
 
 	// see TestLabelsEnabled
-	labelEnabledTest
+	testLabelEnabled
 
 	// see TestHandler
-	handlerTest
+	testHandler
 
 	// see TestMinLevel
-	minLevelTest
+	testMinLevel
 
 	// see TestFlushWait
-	flushWaitTest
+	testFlushWait
 
 	// see TestBatchInterval
-	batchIntervalTest
+	testBatchInterval
 
 	// see TestBatchSize
-	batchSizeTest
+	testBatchSize
 
 	// see TestSynchronous
-	synchronousTest
+	testSynchronous
+
+	// see TestLogAfterClose
+	testLogAfterClose
 )
 
 // TestLokiHandler tests:
@@ -70,13 +73,13 @@ const (
 // - increasing dates at loki values
 // - log messages
 func TestLokiHandler(t *testing.T) {
-	msgs, err := testInternal(defaultTest)
+	msgs, err := testInternal(testDefault)
 	require.NoError(t, err)
 
-	require.Len(t, msgs, 1, "one Loki message expected")
+	require.Len(t, msgs, 1, "1 Loki message expected")
 
 	m := msgs[0]
-	require.Len(t, m.Streams, 1, "one Loki stream expected")
+	require.Len(t, m.Streams, 1, "1 Loki stream expected")
 
 	s := m.Streams[0]
 	require.Len(t, s.Stream, 0, "one label expected")
@@ -107,13 +110,13 @@ func requireMessage(t *testing.T, expected, message string) {
 // TestFormat tests:
 // - if the sent log entry string has the correct format
 func TestFormat(t *testing.T) {
-	msgs, err := testInternal(formatTest)
+	msgs, err := testInternal(testFormat)
 	require.NoError(t, err)
 
-	require.Len(t, msgs, 1, "one Loki message expected")
+	require.Len(t, msgs, 1, "1 Loki message expected")
 
 	m := msgs[0]
-	require.Len(t, m.Streams, 1, "one Loki stream expected")
+	require.Len(t, m.Streams, 1, "1 Loki stream expected")
 
 	s := m.Streams[0]
 	require.Len(t, s.Values, 5, "5 Loki values expected")
@@ -134,13 +137,13 @@ func TestFormat(t *testing.T) {
 // TestAttrAndGroup tests:
 // - if attributes and groups are correctly added to log messages
 func TestAttrAndGroup(t *testing.T) {
-	msgs, err := testInternal(attrAndGroupTest)
+	msgs, err := testInternal(testAttrAndGroup)
 	require.NoError(t, err)
 
-	require.Len(t, msgs, 1, "one Loki message expected")
+	require.Len(t, msgs, 1, "1 Loki message expected")
 
 	m := msgs[0]
-	require.Len(t, m.Streams, 1, "one Loki stream expected")
+	require.Len(t, m.Streams, 1, "1 Loki stream expected")
 
 	s := m.Streams[0]
 	require.Empty(t, s.Stream, "no Loki stream labels expected")
@@ -164,10 +167,10 @@ func TestAttrAndGroup(t *testing.T) {
 // TestAttrAndGroupLabels tests:
 // - if attributes and groups are correctly added to log messages and as labels
 func TestAttrAndGroupLabels(t *testing.T) {
-	msgs, err := testInternal(attrAndGroupLabelsTest)
+	msgs, err := testInternal(testAttrAndGroupLabels)
 	require.NoError(t, err)
 
-	require.Len(t, msgs, 1, "one Loki messages expected")
+	require.Len(t, msgs, 1, "1 Loki messages expected")
 
 	m := msgs[0]
 	require.Len(t, m.Streams, 6, "6 Loki streams expected")
@@ -221,7 +224,7 @@ func TestAttrAndGroupLabels(t *testing.T) {
 // - different log messages
 // - increasing date in different log messages
 func TestFlush(t *testing.T) {
-	msgs, err := testInternal(flushTest)
+	msgs, err := testInternal(testFlush)
 	require.NoError(t, err)
 
 	checkMessages12_3(t, msgs)
@@ -241,7 +244,7 @@ func checkMessages12_3(t *testing.T, msgs []*lokiMessage) {
 	require.Len(t, msgs, 2, "2 Loki messages expected")
 
 	for i, m := range msgs {
-		require.Lenf(t, m.Streams, 1, "one Loki stream in message %d expected", i+1)
+		require.Lenf(t, m.Streams, 1, "1 Loki stream in message %d expected", i+1)
 
 		s := m.Streams[0]
 		if i == 0 {
@@ -250,7 +253,7 @@ func checkMessages12_3(t *testing.T, msgs []*lokiMessage) {
 			requireMessage(t, "level=INFO msg=1", s.Values[0].message)
 			requireMessage(t, "level=INFO msg=2", s.Values[1].message)
 		} else {
-			require.Lenf(t, s.Values, 1, "one Loki value in message %d expected", i+1)
+			require.Lenf(t, s.Values, 1, "1 Loki value in message %d expected", i+1)
 			requireMessage(t, "level=INFO msg=3", s.Values[0].message)
 		}
 	}
@@ -259,13 +262,13 @@ func checkMessages12_3(t *testing.T, msgs []*lokiMessage) {
 // TestNameAttribute tests:
 // - name attribute
 func TestNameAttribute(t *testing.T) {
-	msgs, err := testInternal(nameAttrTest)
+	msgs, err := testInternal(testNameAttr)
 	require.NoError(t, err)
 
-	require.Len(t, msgs, 1, "one Loki message expected")
+	require.Len(t, msgs, 1, "1 Loki message expected")
 
 	m := msgs[0]
-	require.Len(t, m.Streams, 1, "one Loki stream expected")
+	require.Len(t, m.Streams, 1, "1 Loki stream expected")
 
 	s := m.Streams[0]
 	require.Len(t, s.Stream, 1, "one label expected")
@@ -275,13 +278,13 @@ func TestNameAttribute(t *testing.T) {
 // TestLabel tests:
 // - added label
 func TestLabel(t *testing.T) {
-	msgs, err := testInternal(labelTest)
+	msgs, err := testInternal(testLabel)
 	require.NoError(t, err)
 
-	require.Len(t, msgs, 1, "one Loki message expected")
+	require.Len(t, msgs, 1, "1 Loki message expected")
 
 	m := msgs[0]
-	require.Len(t, m.Streams, 1, "one Loki stream expected")
+	require.Len(t, m.Streams, 1, "1 Loki stream expected")
 
 	s := m.Streams[0]
 	require.Len(t, s.Stream, 1, "one label expected")
@@ -291,10 +294,10 @@ func TestLabel(t *testing.T) {
 // TestLabel tests:
 // - all available attributes as labels
 func TestLabelsEnabled(t *testing.T) {
-	msgs, err := testInternal(labelEnabledTest)
+	msgs, err := testInternal(testLabelEnabled)
 	require.NoError(t, err)
 
-	require.Len(t, msgs, 1, "one Loki message expected")
+	require.Len(t, msgs, 1, "1 Loki message expected")
 
 	m := msgs[0]
 	require.Len(t, m.Streams, 3, "3 Loki stream expected")
@@ -374,11 +377,11 @@ func requireKeys(t *testing.T, expected []string, m map[string]string) {
 // TestHandler tests:
 // - log message with a different handler
 func TestHandler(t *testing.T) {
-	msgs, err := testInternal(handlerTest)
+	msgs, err := testInternal(testHandler)
 	require.NoError(t, err)
 
 	m := msgs[0]
-	require.Len(t, m.Streams, 1, "one Loki stream expected")
+	require.Len(t, m.Streams, 1, "1 Loki stream expected")
 
 	v := m.Streams[0].Values
 	require.Len(t, v, 1, "1 log value expected")
@@ -396,11 +399,11 @@ func TestHandler(t *testing.T) {
 // TestMinimumLevel tests:
 // - logging with a minimum log level
 func TestMinimumLevel(t *testing.T) {
-	msgs, err := testInternal(minLevelTest)
+	msgs, err := testInternal(testMinLevel)
 	require.NoError(t, err)
 
 	m := msgs[0]
-	require.Len(t, m.Streams, 1, "one Loki stream expected")
+	require.Len(t, m.Streams, 1, "1 Loki stream expected")
 
 	v := m.Streams[0].Values
 	require.Len(t, v, 1, "1 log value expected")
@@ -412,16 +415,16 @@ func TestMinimumLevel(t *testing.T) {
 // - flush and wait
 // - if the time resets after a send
 func TestFlushWait(t *testing.T) {
-	msgs, err := testInternal(flushWaitTest)
+	msgs, err := testInternal(testFlushWait)
 	require.NoError(t, err)
 
 	require.Len(t, msgs, 3, "3 Loki messages expected")
 
 	for i, m := range msgs {
-		require.Lenf(t, m.Streams, 1, "one Loki stream in message %d expected", i+1)
+		require.Lenf(t, m.Streams, 1, "1 Loki stream in message %d expected", i+1)
 
 		s := m.Streams[0]
-		require.Lenf(t, s.Values, 1, "one Loki value in message %d expected", i+1)
+		require.Lenf(t, s.Values, 1, "1 Loki value in stream %d expected", i+1)
 		requireMessage(t, fmt.Sprintf("level=INFO msg=%d", i+1), s.Values[0].message)
 	}
 }
@@ -429,7 +432,7 @@ func TestFlushWait(t *testing.T) {
 // TestBatchInterval tests:
 // - testing the batch interval
 func TestBatchInterval(t *testing.T) {
-	msgs, err := testInternal(batchIntervalTest)
+	msgs, err := testInternal(testBatchInterval)
 	require.NoError(t, err)
 
 	checkMessages12_3(t, msgs)
@@ -438,7 +441,7 @@ func TestBatchInterval(t *testing.T) {
 // TestBatchSize tests:
 // - batch size of 2
 func TestBatchSize(t *testing.T) {
-	msgs, err := testInternal(batchSizeTest)
+	msgs, err := testInternal(testBatchSize)
 	require.NoError(t, err)
 
 	checkMessages12_3(t, msgs)
@@ -447,17 +450,36 @@ func TestBatchSize(t *testing.T) {
 // TestSynchronous tests:
 // - synchronous logging
 func TestSynchronous(t *testing.T) {
-	msgs, err := testInternal(synchronousTest)
+	msgs, err := testInternal(testSynchronous)
 	require.NoError(t, err)
 
 	require.Len(t, msgs, 3, "3 Loki messages expected")
 
 	for i, m := range msgs {
-		require.Lenf(t, m.Streams, 1, "one Loki stream in message %d expected", i+1)
+		require.Lenf(t, m.Streams, 1, "1 Loki stream in message %d expected", i+1)
 
 		s := m.Streams[0]
-		require.Lenf(t, s.Values, 1, "one Loki value in message %d expected", i+1)
+		require.Lenf(t, s.Values, 1, "1 Loki value in stream %d expected", i+1)
 		requireMessage(t, fmt.Sprintf("level=INFO msg=%d", i+1), s.Values[0].message)
+	}
+}
+
+// TestLogAfterClose tests:
+// - logging after closing
+func TestLogAfterClose(t *testing.T) {
+	msgs, err := testInternal(testLogAfterClose)
+	require.NoError(t, err)
+
+	require.Len(t, msgs, 1, "1 Loki message expected")
+
+	m := msgs[0]
+	require.Lenf(t, m.Streams, 1, "1 Loki stream expected")
+
+	s := m.Streams[0]
+	require.Lenf(t, s.Values, 2, "2 Loki values expected")
+
+	for i, v := range s.Values {
+		requireMessage(t, fmt.Sprintf("level=INFO msg=%d", i+1), v.message)
 	}
 }
 
@@ -490,7 +512,7 @@ func (h *errorHandler) WithGroup(_ string) slog.Handler {
 	return h
 }
 
-func testInternal(typ TestType) ([]*lokiMessage, error) {
+func testInternal(typ testType) ([]*lokiMessage, error) {
 	var (
 		messages []*lokiMessage
 		err      error
@@ -518,10 +540,13 @@ func testInternal(typ TestType) ([]*lokiMessage, error) {
 	options = append(options, getOptions(typ)...)
 
 	h := NewHandler(server.URL, options...)
-	logger := slog.New(h)
+	l := slog.New(h)
 
-	doLog(typ, logger, h)
+	doLog(typ, l, h)
 	h.Close()
+	doAfterLog(typ, l, h)
+
+	server.Close()
 
 	if err != nil {
 		return nil, err
@@ -530,54 +555,54 @@ func testInternal(typ TestType) ([]*lokiMessage, error) {
 	return messages, nil
 }
 
-func getOptions(typ TestType) []Option {
+func getOptions(typ testType) []Option {
 	switch typ {
-	case defaultTest:
+	case testDefault:
 		return nil
-	case attrAndGroupTest:
+	case testAttrAndGroup:
 		return nil
-	case attrAndGroupLabelsTest:
+	case testAttrAndGroupLabels:
 		return []Option{WithLabelsEnabled(LabelAttrs)}
-	case formatTest:
+	case testFormat:
 		return nil
-	case flushTest:
+	case testFlush:
 		return nil
-	case nameAttrTest:
+	case testNameAttr:
 		return []Option{WithName("test")}
-	case labelTest:
+	case testLabel:
 		return []Option{WithLabel("test", "test")}
-	case labelEnabledTest:
+	case testLabelEnabled:
 		all := []Label{LabelAttrs, LabelTime, LabelLevel, LabelSource, LabelMessage}
 		return []Option{WithName("test"), WithLabelsEnabled(all...)}
-	case handlerTest:
+	case testHandler:
 		return []Option{WithHandler(func(w io.Writer) slog.Handler {
 			return slog.NewJSONHandler(w, nil)
 		})}
-	case minLevelTest:
+	case testMinLevel:
 		return []Option{WithHandler(func(w io.Writer) slog.Handler {
 			return NewLogfmtHandler(w, &LogfmtOptions{
 				Level: slog.LevelWarn,
 			})
 		})}
-	case flushWaitTest, batchIntervalTest:
+	case testFlushWait, testBatchInterval:
 		return []Option{WithBatchInterval(1 * time.Second)}
-	case batchSizeTest:
+	case testBatchSize:
 		return []Option{WithBatchSize(2)}
-	case synchronousTest:
+	case testSynchronous:
 		return []Option{WithSynchronous(true)}
 	default:
 		return nil
 	}
 }
 
-func doLog(typ TestType, log *slog.Logger, h *Handler) {
+func doLog(typ testType, log *slog.Logger, h *Handler) {
 	switch typ {
-	case defaultTest:
+	case testDefault:
 		log.Debug("test")
 		log.Info("test")
 		log.Warn("test")
 		log.Error("test")
-	case attrAndGroupTest, attrAndGroupLabelsTest:
+	case testAttrAndGroup, testAttrAndGroupLabels:
 		// regular log message
 		log.Info("test")
 
@@ -609,20 +634,20 @@ func doLog(typ TestType, log *slog.Logger, h *Handler) {
 		// ... with inner group
 		l = l.WithGroup("inner")
 		l.Info("test", slog.String("test2", "value2"))
-	case formatTest:
+	case testFormat:
 		log.Info("test test")
 		log.Info("test=test")
 		log.Info(`"test"`)
 		log.Info("test", slog.String("test", `"test"`))
 		log.Error("test", slog.Any("error", errors.New("test")))
-	case flushTest:
+	case testFlush:
 		log.Info("1")
 		log.Info("2")
 		h.Flush()
 		log.Info("3")
-	case nameAttrTest, labelTest:
+	case testNameAttr, testLabel:
 		log.Info("test")
-	case labelEnabledTest:
+	case testLabelEnabled:
 		log.Info("test")
 		log.Info("test", slog.String("test", "value"))
 		log.Info("test",
@@ -632,29 +657,38 @@ func doLog(typ TestType, log *slog.Logger, h *Handler) {
 				slog.String("test2", "value2"),
 			),
 		)
-	case handlerTest:
+	case testHandler:
 		log.Info("test")
-	case minLevelTest:
+	case testMinLevel:
 		log.Debug("test")
 		log.Info("test")
 		log.Warn("test")
-	case flushWaitTest:
+	case testFlushWait:
 		log.Info("1")
 		h.Flush()
 		log.Info("2")
 		time.Sleep(1100 * time.Millisecond) // 1.1 sec
 		log.Info("3")
-	case batchIntervalTest:
+	case testBatchInterval:
 		log.Info("1")
 		log.Info("2")
 		time.Sleep(1100 * time.Millisecond) // 1.1 sec
 		log.Info("3")
-	case batchSizeTest, synchronousTest:
+	case testBatchSize, testSynchronous:
 		log.Info("1")
 		log.Info("2")
 		log.Info("3")
+	case testLogAfterClose:
+		log.Info("1")
+		log.Info("2")
 	default:
 		break
+	}
+}
+
+func doAfterLog(typ testType, log *slog.Logger, _ *Handler) {
+	if typ == testLogAfterClose {
+		log.Info("3")
 	}
 }
 

@@ -53,6 +53,7 @@ var _ json.Marshaler = (*lokiValue)(nil)
 
 func (v *lokiValue) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
+	buf.Grow(len(v.message) + 32) // a capacity of len(msg) + 32 should be enough for most of the values
 
 	buf.WriteString(`["`)
 	buf.WriteString(strconv.FormatInt(v.time.UnixNano(), 10))
