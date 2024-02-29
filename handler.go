@@ -170,17 +170,14 @@ func unpackAttr(prefix string, a slog.Attr, deliver func(k, v string)) {
 	k := a.Key
 	v := a.Value
 
-	switch v.Kind() {
-	case slog.KindGroup:
+	if v.Kind() == slog.KindGroup {
 		prefix := prefix + k + "."
 
 		for _, a := range v.Group() {
 			unpackAttr(prefix, a, deliver)
 		}
-	case slog.KindLogValuer:
-		v = v.LogValuer().LogValue()
-		fallthrough
-	default:
+	} else {
+		v = v.Resolve()
 		deliver(prefix+k, v.String())
 	}
 }
