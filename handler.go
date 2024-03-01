@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"maps"
 	"net/http"
@@ -74,6 +75,7 @@ type subhandler struct {
 // Test if the type satisfies the slog.Handler interface.
 var (
 	_ slog.Handler = (*Handler)(nil)
+	_ io.Closer    = (*Handler)(nil)
 	_ slog.Handler = (*subhandler)(nil)
 )
 
@@ -284,10 +286,11 @@ func (h *Handler) Flush() {
 }
 
 // Close waits for the log queue to be empty and then stops the background worker.
-// This func is meant to be used when the handler was created as asynchronous.
-func (h *Handler) Close() {
+// This function is meant to be used when the handler handles log records asynchronously.
+// The returned error is always nil.
+func (h *Handler) Close() error {
 	if h.synchronous {
-		return
+		return nil
 	}
 
 	h.mu.Lock()
@@ -297,6 +300,8 @@ func (h *Handler) Close() {
 	close(h.flush)
 	close(h.buf)
 	h.closed = true
+
+	return nil
 }
 
 // doFlush flushes the buffer.
